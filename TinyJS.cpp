@@ -95,16 +95,29 @@ CScriptException::CScriptException(const string &exceptionText) {
 // ----------------------------------------------------------------------------------- CSCRIPTLEX
 
 CScriptLex::CScriptLex(const string &input) {
-    data = input;
+    data = strdup(input.c_str());
+    dataOwned = true;
+    dataStart = 0;
+    dataEnd = strlen(data);
+    reset();
+}
+
+CScriptLex::CScriptLex(CScriptLex *owner, int startChar, int endChar) {
+    data = owner->data;
+    dataOwned = false;
+    dataStart = startChar;
+    dataEnd = endChar;
     reset();
 }
 
 CScriptLex::~CScriptLex(void)
 {
+    if (dataOwned)
+        free((void*)data);
 }
 
 void CScriptLex::reset() {
-    dataPos = 0;
+    dataPos = dataStart;
     tokenPosition = 0;
     tk = 0;
     tkStr = "";
@@ -164,22 +177,15 @@ string CScriptLex::getTokenStr(int token) {
 
 void CScriptLex::getNextCh() {
     currCh = nextCh;
-    if (dataPos < (int)data.size())
+    if (dataPos < dataEnd)
         nextCh = data[dataPos++];
     else
         nextCh = 0;
-
-    /*if (nextCh)  {
-        FILE *f = fopen("C:\\js.txt", "a");
-        ASSERT(f);
-        fputc(nextCh, f);
-        fclose(f);
-    }*/
 }
 
 void CScriptLex::getNextToken() {
     tk = LEX_EOF;
-    tkStr = "";
+    tkStr.clear();
     while (currCh && isWhitespace(currCh)) getNextCh();
     // newline comments
     if (currCh=='/' && nextCh=='/') {
@@ -289,21 +295,32 @@ void CScriptLex::getNextToken() {
 }
 
 string CScriptLex::getSubString(int lastPosition) {
-    if (dataPos < (int)data.size())
-        return data.substr(lastPosition, tokenPosition-lastPosition);
-    else
-        return data.substr(lastPosition);
+    if (dataPos < dataEnd) {
+        /* save a memory alloc by using our data array to create the
+           substring */
+        char old = data[tokenPosition];
+        data[tokenPosition] = 0;
+        std::string value = &data[lastPosition];
+        data[tokenPosition] = old;
+        return value;
+    } else {
+        return std::string(&data[lastPosition]);
+    }
 }
 
+
 CScriptLex *CScriptLex::getSubLex(int lastPosition) {
-    return new CScriptLex( getSubString(lastPosition) );
+    if (dataPos < dataEnd)
+        return new CScriptLex( this, lastPosition, tokenPosition);
+    else
+        return new CScriptLex( this, lastPosition, dataEnd );
 }
 
 string CScriptLex::getPosition(int pos) {
     int line = 1,col = 1;
     for (int i=0;i<pos;i++) {
         char ch;
-        if (i < (int)data.size())
+        if (i < dataEnd)
             ch = data[i];
         else
             ch = 0;
@@ -475,7 +492,16 @@ void CScriptVar::setDouble(double val) {
 }
 
 void CScriptVar::setString(string str) {
+    // name sure it's not still a number or integer
+    flags &= ~SCRIPTVAR_VARTYPEMASK;
     data = str;
+}
+
+void CScriptVar::setVoid() {
+    // name sure it's not still a number or integer
+    flags &= ~SCRIPTVAR_VARTYPEMASK;
+    data = TINYJS_BLANK_DATA;
+    removeAllChildren();
 }
 
 CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
@@ -546,14 +572,18 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
 }
 
 void CScriptVar::copyValue(CScriptVar *val) {
-    data = val->data;
-    flags = (flags & ~SCRIPTVAR_VARTYPEMASK) | (val->flags & SCRIPTVAR_VARTYPEMASK);
-    // copy children
-    removeAllChildren();
-    CScriptVar *child = val->firstChild;
-    while (child) {
-        addChild(child->deepCopy());
-        child = child->nextSibling;
+    if (val) {
+      data = val->data;
+      flags = (flags & ~SCRIPTVAR_VARTYPEMASK) | (val->flags & SCRIPTVAR_VARTYPEMASK);
+      // copy children
+      removeAllChildren();
+      CScriptVar *child = val->firstChild;
+      while (child) {
+          addChild(child->deepCopy());
+          child = child->nextSibling;
+      }
+    } else {
+      setVoid();
     }
 }
 
@@ -615,11 +645,12 @@ void CScriptVar::setCallback(JSCallback callback) {
 
 CTinyJS::CTinyJS() {
     l = 0;
-    root = new CScriptVar("root", "");
+    root = symbol_base = new CScriptVar("root", "");
 }
 
 CTinyJS::~CTinyJS() {
     ASSERT(!l);
+    symbol_base = 0;
     delete root;
 }
 
@@ -630,6 +661,7 @@ void CTinyJS::trace() {
 void CTinyJS::execute(const string &code) {
     CScriptLex *oldLex = l;
     l = new CScriptLex(code);
+    symbol_base = root;
     try {
         bool execute = true;
         while (l->tk) statement(execute);
@@ -647,6 +679,7 @@ void CTinyJS::execute(const string &code) {
 string CTinyJS::evaluate(const string &code) {
     CScriptLex *oldLex = l;
     l = new CScriptLex(code);
+    symbol_base = root;
     CScriptVar *v = 0;
     try {
         bool execute = true;
@@ -704,7 +737,7 @@ CScriptVar *CTinyJS::factor(bool &execute) {
         return new CScriptVar(0);
     }
     if (l->tk==LEX_ID) {
-        CScriptVar *a = root->findRecursive(l->tkStr);
+        CScriptVar *a = symbol_base->findRecursive(l->tkStr);
         if (!a) {
             if (execute) {
                 ostringstream msg;
@@ -712,7 +745,6 @@ CScriptVar *CTinyJS::factor(bool &execute) {
                 throw new CScriptException(msg.str());
             }
             a = new CScriptVar(l->tkStr, "");
-            //root->addChild(a);
         }
         l->match(LEX_ID);
         while (l->tk=='(' || l->tk=='.' || l->tk=='[') {
@@ -746,10 +778,10 @@ CScriptVar *CTinyJS::factor(bool &execute) {
                 // execute function!
                 if (execute) {
                     // add the function's execute space to the symbol table so we can recurse
-                    CScriptVar *oldRoot = root;
-                    root->addChild(functionRoot);
+                    CScriptVar *old_symbol_base = symbol_base;
+                    symbol_base->addChild(functionRoot);
                     functionRoot->addChild(returnVar);
-                    root = functionRoot;
+                    symbol_base = functionRoot;
 
                     if (a->isNative()) {
                         ASSERT(a->jsCallback);
@@ -764,8 +796,8 @@ CScriptVar *CTinyJS::factor(bool &execute) {
                         delete l;
                         l = oldLex;
                     }
-                    root = oldRoot;
-                    root->removeChild(functionRoot);
+                    symbol_base = old_symbol_base;
+                    symbol_base->removeChild(functionRoot);
                     functionRoot->removeChild(returnVar);
                 }
                 delete functionRoot;
@@ -916,18 +948,29 @@ CScriptVar *CTinyJS::logic(bool &execute) {
         int op = l->tk;
         l->match(l->tk);
         bool shortCircuit = false;
+        bool boolean = false;
         // if we have short-circuit ops, then if we know the outcome
         // we don't bother to execute the other op. Even if not
         // we need to tell mathsOp it's an & or |
         if (op==LEX_ANDAND) {
             op = '&';
             shortCircuit = !a->getBool();
+            boolean = true;
         } else if (op==LEX_OROR) {
             op = '|';
             shortCircuit = a->getBool();
+            boolean = true;
         }
         b = condition(shortCircuit ? noexecute : execute);
         if (execute && !shortCircuit) {
+            if (boolean) {
+              CScriptVar *newa = new CScriptVar(a->getBool());
+              CScriptVar *newb = new CScriptVar(b->getBool());
+              CLEAN(a);
+              CLEAN(b);
+              a = newa;
+              b = newb;
+            }
             CScriptVar *res = a->mathsOp(b, op);
             CLEAN(a);
             CLEAN(b);
@@ -979,10 +1022,10 @@ void CTinyJS::statement(bool &execute) {
         l->match(LEX_R_VAR);
         CScriptVar *a = 0;
         if (execute) {
-            a = root->findChild(l->tkStr);
+            a = symbol_base->findChild(l->tkStr);
             if (!a) {
                 a = new CScriptVar(l->tkStr, "");
-                root->addChild(a);
+                symbol_base->addChild(a);
             }
         }
         l->match(LEX_ID);
@@ -1058,7 +1101,7 @@ void CTinyJS::statement(bool &execute) {
         delete whileBody;
 
         if (loopCount<=0) {
-            root->getRoot()->trace();
+            root->trace();
             TRACE("WHILE Loop exceeded %d iterations at %s\n", TINYJS_LOOP_MAX_ITERATIONS, l->getPosition(l->tokenPosition).c_str());
             throw new CScriptException("LOOP_ERROR");
         }
@@ -1110,15 +1153,17 @@ void CTinyJS::statement(bool &execute) {
         delete forIter;
         delete forBody;
         if (loopCount<=0) {
-            root->getRoot()->trace();
+            root->trace();
             TRACE("FOR Loop exceeded %d iterations at %s\n", TINYJS_LOOP_MAX_ITERATIONS, l->getPosition(l->tokenPosition).c_str());
             throw new CScriptException("LOOP_ERROR");
         }
     } else if (l->tk==LEX_R_RETURN) {
         l->match(LEX_R_RETURN);
-        CScriptVar *result = base(execute);
+        CScriptVar *result = 0;
+        if (l->tk != ';')
+          result = base(execute);
         if (execute) {
-            CScriptVar *resultVar = root->getChild(TINYJS_RETURN_VAR);
+            CScriptVar *resultVar = symbol_base->getChild(TINYJS_RETURN_VAR);
             ASSERT(resultVar);
             resultVar->copyValue(result);
             execute = false;
@@ -1131,7 +1176,7 @@ void CTinyJS::statement(bool &execute) {
         string funcName = l->tkStr;
         bool noexecute = false;
         CScriptVar *funcVar = new CScriptVar(funcName, "", SCRIPTVAR_FUNCTION);
-        root->addChildNoDup(funcVar);
+        symbol_base->addChildNoDup(funcVar);
         l->match(LEX_ID);
         // add all parameters
         l->match('(');

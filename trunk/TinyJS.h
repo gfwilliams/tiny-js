@@ -32,7 +32,7 @@
 #define TRACE printf
 #endif // TRACE
 
-const int TINYJS_LOOP_MAX_ITERATIONS = 1024;
+const int TINYJS_LOOP_MAX_ITERATIONS = 8192;
 
 enum LEX_TYPES {
     LEX_EOF = 0,
@@ -89,6 +89,7 @@ class CScriptLex
 {
 public:
     CScriptLex(const std::string &input);
+    CScriptLex(CScriptLex *owner, int startChar, int endChar);
     ~CScriptLex(void);
 
     char currCh, nextCh;
@@ -100,13 +101,19 @@ public:
     std::string getTokenStr(int token); ///< Get the string representation of the given token
     void reset(); ///< Reset this lex so we can start again
 
-    std::string getSubString(int lastPosition); ///< Return a sub-string from the given position up until right now
+    std::string getSubString(int pos); ///< Return a sub-string from the given position up until right now
     CScriptLex *getSubLex(int lastPosition); ///< Return a sub-lexer from the given position up until right now
 
     std::string getPosition(int pos); ///< Return a string representing the position in lines and columns of the character pos given
 
 protected:
-    std::string data; ///< Data string to get tokens from
+    /* When we go into a loop, we use getSubLex to get a lexer for just the sub-part of the
+       relevant string. This doesn't re-allocate and copy the string, but instead copies
+       the data pointer and sets dataOwned to false, and dataStart/dataEnd to the relevant things. */
+    char *data; ///< Data string to get tokens from
+    int dataStart, dataEnd; ///< Start and end position in data string
+    bool dataOwned; ///< Do we own this data string?
+
     int dataPos; ///< Position in data
 
     void getNextCh();
@@ -144,6 +151,7 @@ public:
     void setInt(int num);
     void setDouble(double val);
     void setString(std::string str);
+    void setVoid();
 
     bool isInt() { return (flags&SCRIPTVAR_NUMERIC)!=0 && (flags&SCRIPTVAR_INTEGER)!=0; }
     bool isDouble() { return (flags&SCRIPTVAR_NUMERIC)!=0 && (flags&SCRIPTVAR_INTEGER)==0; }
@@ -200,9 +208,11 @@ public:
     /// Send all variables to stdout
     void trace();
 
-    CScriptVar *root;
+    CScriptVar *root;   /// root of symbol table
 private:
-    CScriptLex *l;
+    CScriptLex *l;             /// current lexer
+    CScriptVar *symbol_base;   /// current symbol table base
+
     // parsing - in order of precedence
     CScriptVar *factor(bool &execute);
     CScriptVar *unary(bool &execute);

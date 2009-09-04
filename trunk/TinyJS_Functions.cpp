@@ -61,6 +61,18 @@ void scStrLen(CScriptVar *c) {
     c->getChild(TINYJS_RETURN_VAR)->setInt(val);
 }
 
+void scStrPos(CScriptVar *c) {
+    string str = c->getChild("string")->getString();
+    string search = c->getChild("search")->getString();
+    size_t p = str.find(search);
+    int val = (p==string::npos) ? -1 : p;
+    c->getChild(TINYJS_RETURN_VAR)->setInt(val);
+}
+
+void scAtoi(CScriptVar *c) {
+    int val = c->getChild("str")->getInt();
+    c->getChild(TINYJS_RETURN_VAR)->setInt(val);
+}
 
 // ----------------------------------------------- Register Functions
 void registerFunctions(CTinyJS *tinyJS) {
@@ -69,4 +81,6 @@ void registerFunctions(CTinyJS *tinyJS) {
     tinyJS->addNative("function randInt(min, max)", scRandInt);
     tinyJS->addNative("function charToInt(ch)", scCharToInt); //  convert a character to an int - get its value
     tinyJS->addNative("function strlen(str)", scStrLen); // length of a string
+    tinyJS->addNative("function strpos(string,search)", scStrPos); // find the position of a string in a string, -1 if not
+    tinyJS->addNative("function atoi(str)", scAtoi); // string to int
 }

@@ -23,8 +23,15 @@
  * Boston, MA 02111-1307, USA.
  */
 
-/* Version 0.1:  (gw) First published on Google Code
- *
+/* Version 0.1  :  (gw) First published on Google Code
+   Version 0.11 :  Making sure the 'root' variable never changes
+                   'symbol_base' added for the current base of the sybmbol table
+   Version 0.12 :  Added findChildOrCreate, changed string passing to use references
+                   Fixed broken string encoding in getJSString()
+                   Removed getInitCode and added getJSON instead
+                   Added nil
+                   Added rough JSON parsing
+                   Improved example app
  */
 
 #include "TinyJS.h"
@@ -80,10 +87,23 @@ void replace(string &str, char textFrom, const char *textTo) {
 /// convert the given string into a quoted string suitable for javascript
 std::string getJSString(const std::string &str) {
     std::string nStr = str;
-    replace(nStr, '\\', "\\");
-    replace(nStr, '\n', "\n");
-    replace(nStr, '"', "\"");
-    return "\"" + str + "\"";
+    for (size_t i=0;i<nStr.size();i++) {
+      const char *replaceWith = "";
+      bool replace = true;
+
+      switch (nStr[i]) {
+        case '\\': replaceWith = "\\\\"; break;
+        case '\n': replaceWith = "\\n"; break;
+        case '"': replaceWith = "\\\""; break;
+        default: replace=false;
+      }
+
+      if (replace) {
+        nStr = nStr.substr(0, i) + replaceWith + nStr.substr(i+1);
+        i += strlen(replaceWith)-1;
+      }
+    }
+    return "\"" + nStr + "\"";
 }
 
 // ----------------------------------------------------------------------------------- CSCRIPTEXCEPTION
@@ -168,6 +188,7 @@ string CScriptLex::getTokenStr(int token) {
         case LEX_R_VAR : return "var";
         case LEX_R_TRUE : return "true";
         case LEX_R_FALSE : return "false";
+        case LEX_R_NIL : return "nil";
     }
 
     ostringstream msg;
@@ -220,6 +241,7 @@ void CScriptLex::getNextToken() {
         else if (tkStr=="var") tk = LEX_R_VAR;
         else if (tkStr=="true") tk = LEX_R_TRUE;
         else if (tkStr=="false") tk = LEX_R_FALSE;
+        else if (tkStr=="nil") tk = LEX_R_NIL;
         return;
     }
     if (isNumeric(currCh)) { // Numbers
@@ -247,6 +269,7 @@ void CScriptLex::getNextToken() {
                 switch (currCh) {
                 case 'n' : tkStr += '\n'; break;
                 case '"' : tkStr += '"'; break;
+                case '\\' : tkStr += '\\'; break;
                 default: tkStr += currCh;
                 }
             } else {
@@ -375,7 +398,7 @@ void CScriptVar::init() {
     jsCallback = 0;
 }
 
-CScriptVar *CScriptVar::findChild(string childName) {
+CScriptVar *CScriptVar::findChild(const string &childName) {
     CScriptVar *v = firstChild;
     while (v) {
         if (v->name.compare(childName)==0)
@@ -385,17 +408,16 @@ CScriptVar *CScriptVar::findChild(string childName) {
     return 0;
 }
 
-CScriptVar *CScriptVar::getChild(string childName) {
-    CScriptVar *v = findChild(childName);
+CScriptVar *CScriptVar::findChildOrCreate(const string &childName) {
+    CScriptVar *v = findChild(childName);    
     if (!v) {
-        ostringstream msg;
-        msg << "Node '" << childName << "' could notbe found";
-        throw new CScriptException(msg.str());
+      v = new CScriptVar(childName);
+      addChild(v);
     }
     return v;
 }
 
-CScriptVar *CScriptVar::findRecursive(string childName) {
+CScriptVar *CScriptVar::findRecursive(const string &childName) {
     CScriptVar *v = findChild(childName);
     if (!v && parent)
         v = parent->findRecursive(childName);
@@ -413,6 +435,22 @@ void CScriptVar::addChild(CScriptVar *child) {
         firstChild = child;
         lastChild = child;
     }
+}
+
+void CScriptVar::addNamedChild(const std::string &childName, CScriptVar *child) {
+  if (!child) { 
+    // not given anything - just add empty child
+    addChild(new CScriptVar(childName));
+  } else if (child->parent) {
+    // current element has an owner, so copy it
+    CScriptVar *c = new CScriptVar(childName);
+    c->copyValue(child);
+    addChild(c);
+  } else { 
+    // no owners - just change name and add it
+    child->name = childName;
+    addChild(child);
+  }
 }
 
 CScriptVar *CScriptVar::addChildNoDup(CScriptVar *child) {
@@ -461,7 +499,7 @@ CScriptVar *CScriptVar::getRoot() {
     return p;
 }
 
-string CScriptVar::getName() {
+const string &CScriptVar::getName() {
     return name;
 }
 
@@ -473,7 +511,7 @@ double CScriptVar::getDouble() {
     return atof(data.c_str());
 }
 
-string &CScriptVar::getString() {
+const string &CScriptVar::getString() {
     return data;
 }
 
@@ -491,7 +529,7 @@ void CScriptVar::setDouble(double val) {
     flags = SCRIPTVAR_NUMERIC;
 }
 
-void CScriptVar::setString(string str) {
+void CScriptVar::setString(const string &str) {
     // name sure it's not still a number or integer
     flags &= ~SCRIPTVAR_VARTYPEMASK;
     data = str;
@@ -607,32 +645,31 @@ void CScriptVar::trace(string indentStr) {
         child = child->nextSibling;
     }
 }
-void CScriptVar::getInitialiseCode(ostringstream &destination, const string &prefix) {
-    bool isID = isIDString(name.c_str());
-    // add this, so write the code to reference the var
-    if (isID) {
-        destination << "var ";
-        if (!prefix.empty())
-            destination << prefix << '.';
-        destination << name << " = ";
+
+string CScriptVar::getParsableString() {
+  if (isNumeric())
+    return getString();
+  return getJSString(getString());
+}
+
+void CScriptVar::getJSON(ostringstream &destination) {
+    if (firstChild) {
+      // children - handle with bracketed list
+      destination << " { \n";
+      CScriptVar *child = firstChild;
+      while (child) {
+        destination  << getJSString(child->name) << " : ";
+          child->getJSON(destination);          
+          child = child->nextSibling;
+          if (child) 
+            destination  << ",\n";
+          else
+            destination  << "\n";
+      }
+      destination << " }\n";
     } else {
-        destination << prefix << "[" << getJSString(name) << "] = ";
-    }
-    // now write the value
-    if (isNumeric())
-        destination << data;
-    else
-        destination << getJSString(data);
-    destination << ";\n";;
-    // work out new prefix
-    string newPrefix = name;
-    if (!prefix.empty())
-        newPrefix = prefix + "." + newPrefix;
-    // add children
-    CScriptVar *child = firstChild;
-    while (child) {
-        child->getInitialiseCode(destination, newPrefix);
-        child = child->nextSibling;
+      // no children, just write value directly
+      destination << getParsableString();
     }
 }
 
@@ -735,6 +772,10 @@ CScriptVar *CTinyJS::factor(bool &execute) {
     if (l->tk==LEX_R_FALSE) {
         l->match(LEX_R_FALSE);
         return new CScriptVar(0);
+    }
+    if (l->tk==LEX_R_NIL) {
+        l->match(LEX_R_NIL);
+        return new CScriptVar();
     }
     if (l->tk==LEX_ID) {
         CScriptVar *a = symbol_base->findRecursive(l->tkStr);
@@ -839,6 +880,41 @@ CScriptVar *CTinyJS::factor(bool &execute) {
         CScriptVar *a = new CScriptVar(TINYJS_TEMP_NAME, l->tkStr, 0);
         l->match(LEX_STR);
         return a;
+    }
+    if (l->tk=='{') {
+        CScriptVar *contents = new CScriptVar();
+        /* JSON-style object definition */
+        l->match('{');
+        while (l->tk != '}') {
+          string id = l->tkStr;
+          l->match(LEX_STR);
+          l->match(':');
+          CScriptVar *a = base(execute);
+          contents->addNamedChild(id, a);
+          // no need to clean here, as it will definitely be used
+          if (l->tk != '}') l->match(',');
+        }
+
+        l->match('}');
+        return contents;
+    }
+    if (l->tk=='[') {
+        CScriptVar *contents = new CScriptVar();
+        /* JSON-style array */
+        l->match('[');
+        int idx = 0;
+        while (l->tk != ']') {    
+          char idx_str[16]; // big enough for 2^32
+          sprintf(idx_str,"%d",idx);
+            
+          CScriptVar *a = base(execute);
+          contents->addNamedChild(idx_str, a);
+          // no need to clean here, as it will definitely be used
+          if (l->tk != ']') l->match(',');
+          idx++;
+        }
+        l->match(']');
+        return contents;
     }
     l->match(LEX_EOF);
     return new CScriptVar();
@@ -1163,7 +1239,7 @@ void CTinyJS::statement(bool &execute) {
         if (l->tk != ';')
           result = base(execute);
         if (execute) {
-            CScriptVar *resultVar = symbol_base->getChild(TINYJS_RETURN_VAR);
+            CScriptVar *resultVar = symbol_base->findChild(TINYJS_RETURN_VAR);
             ASSERT(resultVar);
             resultVar->copyValue(result);
             execute = false;
@@ -1194,7 +1270,7 @@ void CTinyJS::statement(bool &execute) {
 }
 
 /// Get the value of the given variable, or return 0
-string *CTinyJS::getVariable(const string &path) {
+const string *CTinyJS::getVariable(const string &path) {
     // traverse path
     size_t prevIdx = 0;
     size_t thisIdx = path.find('.');

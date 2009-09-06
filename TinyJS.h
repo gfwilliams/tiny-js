@@ -61,6 +61,7 @@ enum LEX_TYPES {
     LEX_R_VAR,
     LEX_R_TRUE,
     LEX_R_FALSE,
+    LEX_R_NIL,
 };
 
 enum SCRIPTVAR_FLAGS {
@@ -134,23 +135,25 @@ public:
     CScriptVar(int val);
     ~CScriptVar(void);
 
-    CScriptVar *findChild(std::string childName); ///< Tries to find a child with the given name, may return 0
-    CScriptVar *getChild(std::string childName); ///< Gets a child with the given name, produces error on fail
-    CScriptVar *findRecursive(std::string childName); ///< Finds a child, looking recursively up the tree
+    CScriptVar *findChild(const std::string &childName); ///< Tries to find a child with the given name, may return 0 
+    CScriptVar *findChildOrCreate(const std::string &childName); ///< Tries to find a child with the given name, or will create it
+    CScriptVar *findRecursive(const std::string &childName); ///< Finds a child, looking recursively up the tree
     void addChild(CScriptVar *child);
+    void addNamedChild(const std::string &childName, CScriptVar *child); ///< add the named child. if it is already owned, copy it.
     CScriptVar *addChildNoDup(CScriptVar *child); ///< add a child overwriting any with the same name
     void removeChild(CScriptVar *child);
     void removeAllChildren();
     CScriptVar *getRoot(); ///< Get the absolute root of the tree
 
-    std::string getName();
+    const std::string &getName();    
     int getInt();
     bool getBool() { return getInt() != 0; }
     double getDouble();
-    std::string &getString();
+    const std::string &getString();
+    std::string getParsableString(); ///< get Data as a parsable javascript string
     void setInt(int num);
     void setDouble(double val);
-    void setString(std::string str);
+    void setString(const std::string &str);
     void setVoid();
 
     bool isInt() { return (flags&SCRIPTVAR_NUMERIC)!=0 && (flags&SCRIPTVAR_INTEGER)!=0; }
@@ -166,7 +169,7 @@ public:
 
 
     void trace(std::string indentStr = ""); ///< Dump out the contents of this using trace
-    void getInitialiseCode(std::ostringstream &destination, const std::string &prefix = ""); ///< Write out all the JS code needed to recreate this script variable to the stream
+    void getJSON(std::ostringstream &destination); ///< Write out all the JS code needed to recreate this script variable to the stream (as JSON)
     void setCallback(JSCallback callback);
 
     CScriptVar *firstChild;
@@ -203,7 +206,7 @@ public:
     void addNative(const std::string &funcDesc, JSCallback ptr);
 
     /// Get the value of the given variable, or return 0
-    std::string *getVariable(const std::string &path);
+    const std::string *getVariable(const std::string &path);
 
     /// Send all variables to stdout
     void trace();

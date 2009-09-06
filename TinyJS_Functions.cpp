@@ -36,42 +36,42 @@ void scTrace(CScriptVar *c) {
 }
 
 void scRand(CScriptVar *c) {
-    c->getChild(TINYJS_RETURN_VAR)->setDouble((double)rand()/RAND_MAX);
+    c->findChildOrCreate(TINYJS_RETURN_VAR)->setDouble((double)rand()/RAND_MAX);
 }
 
 void scRandInt(CScriptVar *c) {
-    int min = c->getChild("min")->getInt();
-    int max = c->getChild("max")->getInt();
+    int min = c->findChildOrCreate("min")->getInt();
+    int max = c->findChildOrCreate("max")->getInt();
     int val = min + (int)((long)rand()*(1+max-min)/RAND_MAX);
     if (val>max) val=max;
-    c->getChild(TINYJS_RETURN_VAR)->setInt(val);
+    c->findChildOrCreate(TINYJS_RETURN_VAR)->setInt(val);
 }
 
 void scCharToInt(CScriptVar *c) {
-    string str = c->getChild("ch")->getString();;
+    string str = c->findChildOrCreate("ch")->getString();;
     int val = 0;
     if (str.length()>0)
         val = (int)str.c_str()[0];
-    c->getChild(TINYJS_RETURN_VAR)->setInt(val);
+    c->findChildOrCreate(TINYJS_RETURN_VAR)->setInt(val);
 }
 
 void scStrLen(CScriptVar *c) {
-    string str = c->getChild("str")->getString();;
+    string str = c->findChildOrCreate("str")->getString();;
     int val = str.length();
-    c->getChild(TINYJS_RETURN_VAR)->setInt(val);
+    c->findChildOrCreate(TINYJS_RETURN_VAR)->setInt(val);
 }
 
 void scStrPos(CScriptVar *c) {
-    string str = c->getChild("string")->getString();
-    string search = c->getChild("search")->getString();
+    string str = c->findChildOrCreate("string")->getString();
+    string search = c->findChildOrCreate("search")->getString();
     size_t p = str.find(search);
     int val = (p==string::npos) ? -1 : p;
-    c->getChild(TINYJS_RETURN_VAR)->setInt(val);
+    c->findChildOrCreate(TINYJS_RETURN_VAR)->setInt(val);
 }
 
 void scAtoi(CScriptVar *c) {
-    int val = c->getChild("str")->getInt();
-    c->getChild(TINYJS_RETURN_VAR)->setInt(val);
+    int val = c->findChildOrCreate("str")->getInt();
+    c->findChildOrCreate(TINYJS_RETURN_VAR)->setInt(val);
 }
 
 // ----------------------------------------------- Register Functions

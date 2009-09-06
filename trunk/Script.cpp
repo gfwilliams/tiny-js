@@ -37,26 +37,35 @@
 const char *code = "function myfunc(x, y) { return x + y; } var a = myfunc(1,2); print(a);";
 
 void js_print(CScriptVar *v) {
-    printf(">%s\n", v->findChild("text")->getString().c_str());
+    printf("> %s\n", v->findChild("text")->getString().c_str());
 }
+
+void js_dump(CScriptVar *v) {
+    v->getRoot()->trace(">  ");
+}
+
 
 int main(int argc, char **argv)
 {
-  try {
-    CTinyJS s;
-
-    /* add the functions from TinyJS_Functions.cpp */
-    registerFunctions(&s);
-    /* Add a native function */
-    s.addNative("function print(text)", &js_print);
-    /* Execute out bit of code - we could call 'evaluate' here if
-       we wanted something returned */
-    s.execute(code);
-
-    printf("Symbol table contents:\n");
-    s.trace();
-  } catch (CScriptException *e) {
-    printf("ERROR: %s\n", e->text.c_str());
+  CTinyJS s;
+  /* add the functions from TinyJS_Functions.cpp */
+  registerFunctions(&s);
+  /* Add a native function */
+  s.addNative("function print(text)", &js_print);
+  s.addNative("function dump()", &js_dump);
+  /* Execute out bit of code - we could call 'evaluate' here if
+     we wanted something returned */
+  s.execute("var lets_quit = 0; function quit() { lets_quit = 1; }");  
+  s.execute("print(\"Interactive mode... Type quit(); to exit, or print(...); to print something, or dump() to dump the symbol table!\");");  
+  
+  while (s.evaluate("lets_quit") == "0") {
+    char buffer[2048];
+    fgets ( buffer, sizeof(buffer), stdin );
+    try {
+      s.execute(buffer);
+    } catch (CScriptException *e) {
+      printf("ERROR: %s\n", e->text.c_str());
+    }
   }
   return 0;
 }

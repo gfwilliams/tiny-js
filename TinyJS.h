@@ -42,7 +42,9 @@ enum LEX_TYPES {
     LEX_STR,
 
     LEX_EQUAL,
+    LEX_TYPEEQUAL,
     LEX_NEQUAL,
+    LEX_NTYPEEQUAL,
     LEX_LEQUAL,
     LEX_GEQUAL,
     LEX_PLUSEQUAL,
@@ -61,7 +63,8 @@ enum LEX_TYPES {
     LEX_R_VAR,
     LEX_R_TRUE,
     LEX_R_FALSE,
-    LEX_R_NIL,
+    LEX_R_NULL,
+    LEX_R_UNDEFINED,
 };
 
 enum SCRIPTVAR_FLAGS {
@@ -72,12 +75,15 @@ enum SCRIPTVAR_FLAGS {
     SCRIPTVAR_DOUBLE      = 8,  // floating point double
     SCRIPTVAR_INTEGER     = 16, // integer number
     SCRIPTVAR_STRING      = 32, // string
-    SCRIPTVAR_NUMERICMASK = SCRIPTVAR_DOUBLE |
+    SCRIPTVAR_NULL        = 64, // it seems null is its own data type
+    SCRIPTVAR_NUMERICMASK = SCRIPTVAR_NULL |
+                            SCRIPTVAR_DOUBLE |
                             SCRIPTVAR_INTEGER,
     SCRIPTVAR_VARTYPEMASK = SCRIPTVAR_DOUBLE |
                             SCRIPTVAR_INTEGER |
                             SCRIPTVAR_STRING |
-                            SCRIPTVAR_FUNCTION,
+                            SCRIPTVAR_FUNCTION |
+                            SCRIPTVAR_NULL,
 
 };
 
@@ -165,15 +171,17 @@ public:
     void setInt(int num);
     void setDouble(double val);
     void setString(const std::string &str);
-    void setVoid();
+    void setUndefined();
 
     bool isInt() { return (flags&SCRIPTVAR_INTEGER)!=0; }
-    bool isDouble() { return (flags&SCRIPTVAR_DOUBLE)==0; }
+    bool isDouble() { return (flags&SCRIPTVAR_DOUBLE)!=0; }
     bool isString() { return (flags&SCRIPTVAR_STRING)!=0; }
     bool isNumeric() { return (flags&SCRIPTVAR_NUMERICMASK)!=0; }
     bool isFunction() { return (flags&SCRIPTVAR_FUNCTION)!=0; }
     bool isParameter() { return (flags&SCRIPTVAR_PARAMETER)!=0; }
     bool isNative() { return (flags&SCRIPTVAR_NATIVE)!=0; }
+    bool isUndefined() { return (flags & SCRIPTVAR_VARTYPEMASK) == SCRIPTVAR_UNDEFINED; }
+    bool isNull() { return (flags & SCRIPTVAR_NULL)!=0; }
 
     CScriptVar *mathsOp(CScriptVar *b, int op); ///< do a maths op with another script variable
     void copyValue(CScriptVar *val); ///< copy the value from the value given

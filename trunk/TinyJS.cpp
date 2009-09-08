@@ -39,6 +39,13 @@
                    Added findChildOrCreateByPath function
                    Added simple test suite
                    Added skipping of blocks when not executing
+   Version 0.14 :  Added parsing of more number types
+                   Added parsing of string defined with '
+                   Changed nil to null as per spec, added 'undefined'
+                   Now set variables with the correct scope, and treat unknown
+                              as 'undefined' rather than failing
+                   Added proper (I hope) handling of null and undefined
+                   Added === check
 
     NOTE: Currently TinyJS passes by VALUE for function, and never copies
           references - which is a major difference between this and proper
@@ -71,6 +78,11 @@ bool isWhitespace(char ch) {
 
 bool isNumeric(char ch) {
     return (ch>='0') && (ch<='9');
+}
+bool isHexadecimal(char ch) {
+    return ((ch>='0') && (ch<='9')) ||
+           ((ch>='a') && (ch<='f')) ||
+           ((ch>='A') && (ch<='F'));
 }
 bool isAlpha(char ch) {
     return ((ch>='a') && (ch<='z')) || ((ch>='A') && (ch<='Z')) || ch=='_';
@@ -183,7 +195,9 @@ string CScriptLex::getTokenStr(int token) {
         case LEX_FLOAT : return "FLOAT";
         case LEX_STR : return "STRING";
         case LEX_EQUAL : return "==";
+        case LEX_TYPEEQUAL : return "===";
         case LEX_NEQUAL : return "!=";
+        case LEX_NTYPEEQUAL : return "!==";
         case LEX_LEQUAL : return "<=";
         case LEX_GEQUAL : return ">=";
         case LEX_PLUSEQUAL : return "+=";
@@ -202,7 +216,8 @@ string CScriptLex::getTokenStr(int token) {
         case LEX_R_VAR : return "var";
         case LEX_R_TRUE : return "true";
         case LEX_R_FALSE : return "false";
-        case LEX_R_NIL : return "nil";
+        case LEX_R_NULL : return "null";
+        case LEX_R_UNDEFINED : return "undefined";
     }
 
     ostringstream msg;
@@ -256,14 +271,21 @@ void CScriptLex::getNextToken() {
         else if (tkStr=="var") tk = LEX_R_VAR;
         else if (tkStr=="true") tk = LEX_R_TRUE;
         else if (tkStr=="false") tk = LEX_R_FALSE;
-        else if (tkStr=="nil") tk = LEX_R_NIL;
+        else if (tkStr=="null") tk = LEX_R_NULL;
+        else if (tkStr=="undefined") tk = LEX_R_UNDEFINED;
     } else if (isNumeric(currCh)) { // Numbers
+        bool isHex = false;
+        if (currCh=='0') { tkStr += currCh; getNextCh(); }
+        if (currCh=='x') {
+          isHex = true;
+          tkStr += currCh; getNextCh();
+        }
         tk = LEX_INT;
-        while (isNumeric(currCh)) {
+        while (isNumeric(currCh) || (isHex && isHexadecimal(currCh))) {
             tkStr += currCh;
             getNextCh();
         }
-        if (currCh=='.') {
+        if (!isHex && currCh=='.') {
             tk = LEX_FLOAT;
             tkStr += '.';
             getNextCh();
@@ -272,7 +294,17 @@ void CScriptLex::getNextToken() {
                 getNextCh();
             }
         }
+        // do fancy e-style floating point
+        if (!isHex && currCh=='e') {
+          tk = LEX_FLOAT;
+          tkStr += currCh; getNextCh();
+          if (currCh=='-') { tkStr += currCh; getNextCh(); }
+          while (isNumeric(currCh)) {
+             tkStr += currCh; getNextCh();
+          }
+        }
     } else if (currCh=='"') {
+        // strings...
         getNextCh();
         while (currCh && currCh!='"') {
             if (currCh == '\\') {
@@ -290,16 +322,43 @@ void CScriptLex::getNextToken() {
         }
         getNextCh();
         tk = LEX_STR;
+    } else if (currCh=='\'') {
+        // strings again...
+        getNextCh();
+        while (currCh && currCh!='\'') {
+            if (currCh == '\\') {
+                getNextCh();
+                switch (currCh) {
+                case 'n' : tkStr += '\n'; break;
+                case '\'' : tkStr += '\''; break;
+                case '\\' : tkStr += '\\'; break;
+                default: tkStr += currCh;
+                }
+            } else {
+                tkStr += currCh;
+            }
+            getNextCh();
+        }
+        getNextCh();
+        tk = LEX_STR;
     } else {
         // single chars
         tk = currCh;
         if (currCh) getNextCh();
-        if (tk=='=' && currCh=='=') {
+        if (tk=='=' && currCh=='=') { // ==
             tk = LEX_EQUAL;
             getNextCh();
-        } else if (tk=='!' && currCh=='=') {
+            if (currCh=='=') { // ===
+              tk = LEX_TYPEEQUAL;
+              getNextCh();
+            }
+        } else if (tk=='!' && currCh=='=') { // !=
             tk = LEX_NEQUAL;
             getNextCh();
+            if (currCh=='=') { // !==
+              tk = LEX_NTYPEEQUAL;
+              getNextCh();
+            }
         } else if (tk=='<' && currCh=='=') {
             tk = LEX_LEQUAL;
             getNextCh();
@@ -381,6 +440,7 @@ CScriptVar::CScriptVar(void) {
     init();
     name=TINYJS_TEMP_NAME;
     data=TINYJS_BLANK_DATA;
+    flags = SCRIPTVAR_UNDEFINED;
 }
 
 CScriptVar::~CScriptVar(void) {
@@ -529,14 +589,29 @@ const string &CScriptVar::getName() {
 }
 
 int CScriptVar::getInt() {
-    return atoi(data.c_str());
+    /* strtol understands about hex and octal */
+    if (isInt()) return strtol(data.c_str(),0,0);
+    if (isNull()) return 0;
+    if (isUndefined()) return 0;
+    if (isDouble()) return (int)getDouble();
+    return 0;
 }
 
 double CScriptVar::getDouble() {
-    return atof(data.c_str());
+    if (isDouble()) return strtod(data.c_str(),0);
+    if (isInt()) return getInt();
+    if (isNull()) return 0;
+    if (isUndefined()) return 0;
+    return 0; /* or NaN? */
 }
 
 const string &CScriptVar::getString() {
+    /* Because we can't return a string that is generated on demand.
+     * I should really just use char* :) */
+    static string s_null = "null";
+    static string s_undefined = "undefined";
+    if (isNull()) return s_null;
+    if (isUndefined()) return s_undefined;
     return data;
 }
 
@@ -560,23 +635,32 @@ void CScriptVar::setString(const string &str) {
     data = str;
 }
 
-void CScriptVar::setVoid() {
+void CScriptVar::setUndefined() {
     // name sure it's not still a number or integer
-    flags &= ~SCRIPTVAR_VARTYPEMASK;
+    flags = (flags&~SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_UNDEFINED;
     data = TINYJS_BLANK_DATA;
     removeAllChildren();
 }
 
 CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
     CScriptVar *a = this;
-    // if these vars have nothing in them and we add a number...
-    if (a->data.empty() && b->isNumeric())
-        a->setInt(0);
-    if (b->data.empty() && a->isNumeric())
-        b->setInt(0);
+    // TODO Equality checks on classes/structures
+    // Type equality check
+    if (op == LEX_TYPEEQUAL || op == LEX_NTYPEEQUAL) {
+      bool eql = ((a->flags & SCRIPTVAR_VARTYPEMASK) ==
+                  (b->flags & SCRIPTVAR_VARTYPEMASK)) &&
+                 a->data == b->data;
+      if (op == LEX_TYPEEQUAL)
+        return new CScriptVar(eql);
+      else
+        return new CScriptVar(!eql);
+    }
     // do maths...
-    if (a->isNumeric() && b->isNumeric()) {
-        if (a->isInt() && b->isInt()) {
+    if (a->isUndefined() && b->isUndefined()) {
+      return new CScriptVar();
+    } else if ((a->isNumeric() || a->isUndefined()) &&
+               (b->isNumeric() || b->isUndefined())) {
+        if (!a->isDouble() && !b->isDouble()) {
             // use ints
             int da = a->getInt();
             int db = b->getInt();
@@ -620,7 +704,7 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
        string db = b->getString();
        // use strings
        switch (op) {
-           case '+':           return new CScriptVar(TINYJS_TEMP_NAME, da+db);
+           case '+':           return new CScriptVar(TINYJS_TEMP_NAME, da+db, SCRIPTVAR_STRING);
            case LEX_EQUAL:     return new CScriptVar(da==db);
            case LEX_NEQUAL:    return new CScriptVar(da!=db);
            case '<':     return new CScriptVar(da<db);
@@ -647,7 +731,7 @@ void CScriptVar::copyValue(CScriptVar *val) {
           child = child->nextSibling;
       }
     } else {
-      setVoid();
+      setUndefined();
     }
 }
 
@@ -711,7 +795,9 @@ string CScriptVar::getParsableString() {
   // if it is a string then we quote it
   if (isString())
     return getJSString(getString());
-  return "nil";
+  if (isNull())
+      return "null";
+  return "undefined";
 }
 
 void CScriptVar::getJSON(ostringstream &destination) {
@@ -857,20 +943,20 @@ CScriptVar *CTinyJS::factor(bool &execute) {
         l->match(LEX_R_FALSE);
         return new CScriptVar(0);
     }
-    if (l->tk==LEX_R_NIL) {
-        l->match(LEX_R_NIL);
-        return new CScriptVar();
+    if (l->tk==LEX_R_NULL) {
+        l->match(LEX_R_NULL);
+        return new CScriptVar("","",SCRIPTVAR_NULL);
+    }
+    if (l->tk==LEX_R_UNDEFINED) {
+        l->match(LEX_R_UNDEFINED);
+        return new CScriptVar("","",SCRIPTVAR_UNDEFINED);
     }
     if (l->tk==LEX_ID) {
         CScriptVar *a = symbol_base->findRecursive(l->tkStr);
         if (!a) {
-          /* Variable doesn't exist! */
-            if (execute) {
-                ostringstream msg;
-                msg << "Unknown ID '" << l->tkStr << "'";
-                throw new CScriptException(msg.str());
-            }
-            a = new CScriptVar(l->tkStr);
+          /* Variable doesn't exist! JavaScript says we should create it
+           * (we won't add it here. This is done in the assignment operator)*/
+          a = new CScriptVar(l->tkStr);
         }
         l->match(LEX_ID);
         while (l->tk=='(' || l->tk=='.' || l->tk=='[') {
@@ -962,7 +1048,7 @@ CScriptVar *CTinyJS::factor(bool &execute) {
         return a;
     }
     if (l->tk==LEX_STR) {
-        CScriptVar *a = new CScriptVar(TINYJS_TEMP_NAME, l->tkStr, 0);
+        CScriptVar *a = new CScriptVar(TINYJS_TEMP_NAME, l->tkStr, SCRIPTVAR_STRING);
         l->match(LEX_STR);
         return a;
     }
@@ -1093,6 +1179,7 @@ CScriptVar *CTinyJS::condition(bool &execute) {
     CScriptVar *a = expression(execute);
     CScriptVar *b;
     while (l->tk==LEX_EQUAL || l->tk==LEX_NEQUAL ||
+           l->tk==LEX_TYPEEQUAL || l->tk==LEX_NTYPEEQUAL ||
            l->tk==LEX_LEQUAL || l->tk==LEX_GEQUAL ||
            l->tk=='<' || l->tk=='>') {
         int op = l->tk;
@@ -1155,6 +1242,15 @@ CScriptVar *CTinyJS::logic(bool &execute) {
 CScriptVar *CTinyJS::base(bool &execute) {
     CScriptVar *lhs = logic(execute);
     if (l->tk=='=' || l->tk==LEX_PLUSEQUAL || l->tk==LEX_MINUSEQUAL) {
+        /* If we're assigning to this and we don't have a parent,
+         * add it to the symbol table root as per JavaScript. */
+        if (!lhs->parent) {
+          if (lhs->name.length()>0)
+            root->addChildNoDup(lhs);
+          else
+            TRACE("Trying to assign to an un-named type\n");
+        }
+
         int op = l->tk;
         l->match(l->tk);
         CScriptVar *rhs = base(execute);

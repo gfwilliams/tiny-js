@@ -65,12 +65,20 @@ enum LEX_TYPES {
 };
 
 enum SCRIPTVAR_FLAGS {
-    SCRIPTVAR_FUNCTION = 1,
-    SCRIPTVAR_NATIVE = 2,
-    SCRIPTVAR_NUMERIC = 4,
-    SCRIPTVAR_INTEGER = 8, // eg. not floating point
-    SCRIPTVAR_VARTYPEMASK = 12,
-    SCRIPTVAR_PARAMETER = 16
+    SCRIPTVAR_UNDEFINED   = 0,
+    SCRIPTVAR_FUNCTION    = 1,
+    SCRIPTVAR_PARAMETER   = 2,
+    SCRIPTVAR_NATIVE      = 4,
+    SCRIPTVAR_DOUBLE      = 8,  // floating point double
+    SCRIPTVAR_INTEGER     = 16, // integer number
+    SCRIPTVAR_STRING      = 32, // string
+    SCRIPTVAR_NUMERICMASK = SCRIPTVAR_DOUBLE |
+                            SCRIPTVAR_INTEGER,
+    SCRIPTVAR_VARTYPEMASK = SCRIPTVAR_DOUBLE |
+                            SCRIPTVAR_INTEGER |
+                            SCRIPTVAR_STRING |
+                            SCRIPTVAR_FUNCTION,
+
 };
 
 #define TINYJS_RETURN_VAR "return"
@@ -95,7 +103,9 @@ public:
 
     char currCh, nextCh;
     int tk; ///< The type of the token that we have
-    int tokenPosition; ///< Position in the data at the beginning of the token we have here
+    int tokenStart; ///< Position in the data at the beginning of the token we have here
+    int tokenEnd; ///< Position in the data at the last character of the token we have here
+    int tokenLastEnd; ///< Position in the data at the last character of the last token
     std::string tkStr; ///< Data contained in the token we have here
 
     void match(int expected_tk); ///< Lexical match wotsit
@@ -115,7 +125,7 @@ protected:
     int dataStart, dataEnd; ///< Start and end position in data string
     bool dataOwned; ///< Do we own this data string?
 
-    int dataPos; ///< Position in data
+    int dataPos; ///< Position in data (we CAN go past the end of the string here)
 
     void getNextCh();
     void getNextToken(); ///< Get the text token from our text string
@@ -130,13 +140,14 @@ class CScriptVar
 {
 public:
     CScriptVar(void);
-    CScriptVar(std::string varName, std::string varData=TINYJS_BLANK_DATA, int varFlags = 0);
+    CScriptVar(std::string varName, std::string varData=TINYJS_BLANK_DATA, int varFlags = SCRIPTVAR_UNDEFINED);
     CScriptVar(double varData);
     CScriptVar(int val);
     ~CScriptVar(void);
 
-    CScriptVar *findChild(const std::string &childName); ///< Tries to find a child with the given name, may return 0 
+    CScriptVar *findChild(const std::string &childName); ///< Tries to find a child with the given name, may return 0
     CScriptVar *findChildOrCreate(const std::string &childName); ///< Tries to find a child with the given name, or will create it
+    CScriptVar *findChildOrCreateByPath(const std::string &path); ///< Tries to find a child with the given path (separated by dots)
     CScriptVar *findRecursive(const std::string &childName); ///< Finds a child, looking recursively up the tree
     void addChild(CScriptVar *child);
     void addNamedChild(const std::string &childName, CScriptVar *child); ///< add the named child. if it is already owned, copy it.
@@ -145,7 +156,7 @@ public:
     void removeAllChildren();
     CScriptVar *getRoot(); ///< Get the absolute root of the tree
 
-    const std::string &getName();    
+    const std::string &getName();
     int getInt();
     bool getBool() { return getInt() != 0; }
     double getDouble();
@@ -156,9 +167,10 @@ public:
     void setString(const std::string &str);
     void setVoid();
 
-    bool isInt() { return (flags&SCRIPTVAR_NUMERIC)!=0 && (flags&SCRIPTVAR_INTEGER)!=0; }
-    bool isDouble() { return (flags&SCRIPTVAR_NUMERIC)!=0 && (flags&SCRIPTVAR_INTEGER)==0; }
-    bool isNumeric() { return (flags&SCRIPTVAR_NUMERIC)!=0; }
+    bool isInt() { return (flags&SCRIPTVAR_INTEGER)!=0; }
+    bool isDouble() { return (flags&SCRIPTVAR_DOUBLE)==0; }
+    bool isString() { return (flags&SCRIPTVAR_STRING)!=0; }
+    bool isNumeric() { return (flags&SCRIPTVAR_NUMERICMASK)!=0; }
     bool isFunction() { return (flags&SCRIPTVAR_FUNCTION)!=0; }
     bool isParameter() { return (flags&SCRIPTVAR_PARAMETER)!=0; }
     bool isNative() { return (flags&SCRIPTVAR_NATIVE)!=0; }
@@ -169,6 +181,7 @@ public:
 
 
     void trace(std::string indentStr = ""); ///< Dump out the contents of this using trace
+    std::string getFlagsAsString();
     void getJSON(std::ostringstream &destination); ///< Write out all the JS code needed to recreate this script variable to the stream (as JSON)
     void setCallback(JSCallback callback);
 
@@ -226,6 +239,9 @@ private:
     CScriptVar *base(bool &execute);
     void block(bool &execute);
     void statement(bool &execute);
+    // parsing utility functions
+    CScriptVar *parseFunctionDefinition();
+    void parseFunctionArguments(CScriptVar *funcVar);
 };
 
 #endif

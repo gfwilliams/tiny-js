@@ -55,9 +55,13 @@ int main(int argc, char **argv)
   s.addNative("function dump()", &js_dump);
   /* Execute out bit of code - we could call 'evaluate' here if
      we wanted something returned */
-  s.execute("var lets_quit = 0; function quit() { lets_quit = 1; }");  
-  s.execute("print(\"Interactive mode... Type quit(); to exit, or print(...); to print something, or dump() to dump the symbol table!\");");  
-  
+  try {
+    s.execute("var lets_quit = 0; function quit() { lets_quit = 1; }");
+    s.execute("print(\"Interactive mode... Type quit(); to exit, or print(...); to print something, or dump() to dump the symbol table!\");");
+  } catch (CScriptException *e) {
+    printf("ERROR: %s\n", e->text.c_str());
+  }
+
   while (s.evaluate("lets_quit") == "0") {
     char buffer[2048];
     fgets ( buffer, sizeof(buffer), stdin );

@@ -28,6 +28,7 @@
  */
 
 #include <assert.h>
+#include <stdio.h>
 #include "TinyJS.h"
 #include "TinyJS_Functions.h"
 
@@ -36,37 +37,38 @@
 //const char *code = "{ var b = 1; for (var i=0;i<4;i=i+1) b = b * 2; }";
 const char *code = "function myfunc(x, y) { return x + y; } var a = myfunc(1,2); print(a);";
 
-void js_print(CScriptVar *v) {
-    printf("> %s\n", v->findChild("text")->getString().c_str());
+void js_print(CScriptVar *v, void *userdata) {
+    printf("> %s\n", v->getParameter("text")->getString().c_str());
 }
 
-void js_dump(CScriptVar *v) {
-    v->getRoot()->trace(">  ");
+void js_dump(CScriptVar *v, void *userdata) {
+    CTinyJS *js = (CTinyJS*)userdata;
+    js->root->trace(">  ");
 }
 
 
 int main(int argc, char **argv)
 {
-  CTinyJS s;
+  CTinyJS js;
   /* add the functions from TinyJS_Functions.cpp */
-  registerFunctions(&s);
+  registerFunctions(&js);
   /* Add a native function */
-  s.addNative("function print(text)", &js_print);
-  s.addNative("function dump()", &js_dump);
+  js.addNative("function print(text)", &js_print, 0);
+  js.addNative("function dump()", &js_dump, &js);
   /* Execute out bit of code - we could call 'evaluate' here if
      we wanted something returned */
   try {
-    s.execute("var lets_quit = 0; function quit() { lets_quit = 1; }");
-    s.execute("print(\"Interactive mode... Type quit(); to exit, or print(...); to print something, or dump() to dump the symbol table!\");");
+    js.execute("var lets_quit = 0; function quit() { lets_quit = 1; }");
+    js.execute("print(\"Interactive mode... Type quit(); to exit, or print(...); to print something, or dump() to dump the symbol table!\");");
   } catch (CScriptException *e) {
     printf("ERROR: %s\n", e->text.c_str());
   }
 
-  while (s.evaluate("lets_quit") == "0") {
+  while (js.evaluate("lets_quit") == "0") {
     char buffer[2048];
     fgets ( buffer, sizeof(buffer), stdin );
     try {
-      s.execute(buffer);
+      js.execute(buffer);
     } catch (CScriptException *e) {
       printf("ERROR: %s\n", e->text.c_str());
     }

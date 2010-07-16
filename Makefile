@@ -1,6 +1,6 @@
 CC=g++
-CFLAGS=-c -g -Wall
-LDFLAGS=
+CFLAGS=-c -g -Wall -rdynamic
+LDFLAGS=-g -rdynamic
 
 SOURCES=  \
 TinyJS.cpp \

@@ -1,6 +1,6 @@
 #summary Examples of code which runs and works, taken from test cases
 
-Result evulates to 'true' for each of these examples
+The Variable 'result' evaluates to 'true' for each of these examples...
 
 {{{
 // simple for loop

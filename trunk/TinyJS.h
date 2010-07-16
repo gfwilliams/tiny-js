@@ -27,6 +27,7 @@
 #define TINYJS_H
 
 #include <string>
+#include <vector>
 
 #ifndef TRACE
 #define TRACE printf
@@ -65,12 +66,13 @@ enum LEX_TYPES {
     LEX_R_FALSE,
     LEX_R_NULL,
     LEX_R_UNDEFINED,
+    LEX_R_NEW,
 };
 
 enum SCRIPTVAR_FLAGS {
     SCRIPTVAR_UNDEFINED   = 0,
     SCRIPTVAR_FUNCTION    = 1,
-    SCRIPTVAR_PARAMETER   = 2,
+    SCRIPTVAR_OBJECT      = 2,
     SCRIPTVAR_NATIVE      = 4,
     SCRIPTVAR_DOUBLE      = 8,  // floating point double
     SCRIPTVAR_INTEGER     = 16, // integer number
@@ -88,6 +90,7 @@ enum SCRIPTVAR_FLAGS {
 };
 
 #define TINYJS_RETURN_VAR "return"
+#define TINYJS_PARENT_CLASS "__parent"
 #define TINYJS_TEMP_NAME ""
 #define TINYJS_BLANK_DATA ""
 
@@ -139,30 +142,46 @@ protected:
 
 class CScriptVar;
 
-typedef void (*JSCallback)(CScriptVar *var);
+typedef void (*JSCallback)(CScriptVar *var, void *userdata);
+
+class CScriptVarLink
+{
+public:
+  std::string name;
+  CScriptVarLink *nextSibling;
+  CScriptVarLink *prevSibling;
+  CScriptVar *var;
+  bool owned;
+
+  CScriptVarLink(CScriptVar *var, const std::string &name = TINYJS_TEMP_NAME);
+  ~CScriptVarLink();
+  void replaceWith(CScriptVar *newVar); ///< Replace the Variable pointed to
+  void replaceWith(CScriptVarLink *newVar); ///< Replace the Variable pointed to (just dereferences)
+};
 
 /// Variable class (containing a doubly-linked list of children)
 class CScriptVar
 {
 public:
-    CScriptVar(void);
-    CScriptVar(std::string varName, std::string varData=TINYJS_BLANK_DATA, int varFlags = SCRIPTVAR_UNDEFINED);
+    CScriptVar(std::string varData = TINYJS_BLANK_DATA, int varFlags = SCRIPTVAR_UNDEFINED);
     CScriptVar(double varData);
     CScriptVar(int val);
     ~CScriptVar(void);
 
-    CScriptVar *findChild(const std::string &childName); ///< Tries to find a child with the given name, may return 0
-    CScriptVar *findChildOrCreate(const std::string &childName); ///< Tries to find a child with the given name, or will create it
-    CScriptVar *findChildOrCreateByPath(const std::string &path); ///< Tries to find a child with the given path (separated by dots)
-    CScriptVar *findRecursive(const std::string &childName); ///< Finds a child, looking recursively up the tree
-    void addChild(CScriptVar *child);
-    void addNamedChild(const std::string &childName, CScriptVar *child); ///< add the named child. if it is already owned, copy it.
-    CScriptVar *addChildNoDup(CScriptVar *child); ///< add a child overwriting any with the same name
-    void removeChild(CScriptVar *child);
-    void removeAllChildren();
-    CScriptVar *getRoot(); ///< Get the absolute root of the tree
+    CScriptVar *getReturnVar(); ///< If this is a function, get the result value (for use by native functions)
+    CScriptVar *getParameter(const std::string &name); ///< If this is a function, get the parameter with the given name (for use by native functions)
 
-    const std::string &getName();
+    CScriptVarLink *findChild(const std::string &childName); ///< Tries to find a child with the given name, may return 0
+    CScriptVarLink *findChildOrCreate(const std::string &childName); ///< Tries to find a child with the given name, or will create it
+    CScriptVarLink *findChildOrCreateByPath(const std::string &path); ///< Tries to find a child with the given path (separated by dots)
+    CScriptVarLink *addChild(const std::string &childName, CScriptVar *child=NULL);
+    CScriptVarLink *addChildNoDup(const std::string &childName, CScriptVar *child=NULL); ///< add a child overwriting any with the same name
+    void removeChild(CScriptVar *child);
+    void removeLink(CScriptVarLink *link); ///< Remove a specific link (this is faster than finding via a child)
+    void removeAllChildren();
+    CScriptVar *getArrayIndex(int idx); ///< The the value at an array index
+    void setArrayIndex(int idx, CScriptVar *value); ///< Set the value at an array index
+
     int getInt();
     bool getBool() { return getInt() != 0; }
     double getDouble();
@@ -178,31 +197,36 @@ public:
     bool isString() { return (flags&SCRIPTVAR_STRING)!=0; }
     bool isNumeric() { return (flags&SCRIPTVAR_NUMERICMASK)!=0; }
     bool isFunction() { return (flags&SCRIPTVAR_FUNCTION)!=0; }
-    bool isParameter() { return (flags&SCRIPTVAR_PARAMETER)!=0; }
+    bool isObject() { return (flags&SCRIPTVAR_OBJECT)!=0; }
     bool isNative() { return (flags&SCRIPTVAR_NATIVE)!=0; }
     bool isUndefined() { return (flags & SCRIPTVAR_VARTYPEMASK) == SCRIPTVAR_UNDEFINED; }
     bool isNull() { return (flags & SCRIPTVAR_NULL)!=0; }
+    bool isBasic() { return firstChild==0; } ///< Is this *not* an array/object/etc
 
     CScriptVar *mathsOp(CScriptVar *b, int op); ///< do a maths op with another script variable
     void copyValue(CScriptVar *val); ///< copy the value from the value given
     CScriptVar *deepCopy(); ///< deep copy this node and return the result
 
 
-    void trace(std::string indentStr = ""); ///< Dump out the contents of this using trace
+    void trace(std::string indentStr = "", const std::string &name = ""); ///< Dump out the contents of this using trace
     std::string getFlagsAsString();
     void getJSON(std::ostringstream &destination); ///< Write out all the JS code needed to recreate this script variable to the stream (as JSON)
-    void setCallback(JSCallback callback);
+    void setCallback(JSCallback callback, void *userdata);
 
-    CScriptVar *firstChild;
-    CScriptVar *lastChild;
-    CScriptVar *nextSibling;
-    CScriptVar *prevSibling;
-    CScriptVar *parent;
+    CScriptVarLink *firstChild;
+    CScriptVarLink *lastChild;
+
+    /// For memory management/garbage collection
+    CScriptVar *ref(); ///< Add reference to this variable
+    void unref(); ///< Remove a reference, and delete this variable if required
+    int getRefs();
 protected:
-    std::string name;
+    int refs;
+
     std::string data;
     int flags;
     JSCallback jsCallback;
+    void *jsCallbackUserData;
 
     void init(); // initilisation of data members
 
@@ -217,14 +241,21 @@ public:
     void execute(const std::string &code);
     std::string evaluate(const std::string &code);
 
-    /// add a function to the root scope
+    /// add a native function to be called from TinyJS
     /** example:
        \code
-           void scRandInt(CScriptVar *c) { ... }
-           tinyJS->addNative("function randInt(min, max)", scRandInt);
+           void scRandInt(CScriptVar *c, void *userdata) { ... }
+           tinyJS->addNative("function randInt(min, max)", scRandInt, 0);
+       \endcode
+
+       or
+
+       \code
+           void scSubstring(CScriptVar *c, void *userdata) { ... }
+           tinyJS->addNative("function String.substring(lo, hi)", scSubstring, 0);
        \endcode
     */
-    void addNative(const std::string &funcDesc, JSCallback ptr);
+    void addNative(const std::string &funcDesc, JSCallback ptr, void *userdata);
 
     /// Get the value of the given variable, or return 0
     const std::string *getVariable(const std::string &path);
@@ -235,21 +266,27 @@ public:
     CScriptVar *root;   /// root of symbol table
 private:
     CScriptLex *l;             /// current lexer
-    CScriptVar *symbol_base;   /// current symbol table base
+    std::vector<CScriptVar*> scopes; /// stack of scopes when parsing
+    CScriptVar *stringClass; /// Built in string class
+    CScriptVar *objectClass; /// Built in object class
 
     // parsing - in order of precedence
-    CScriptVar *factor(bool &execute);
-    CScriptVar *unary(bool &execute);
-    CScriptVar *term(bool &execute);
-    CScriptVar *expression(bool &execute);
-    CScriptVar *condition(bool &execute);
-    CScriptVar *logic(bool &execute);
-    CScriptVar *base(bool &execute);
+    CScriptVarLink *factor(bool &execute);
+    CScriptVarLink *unary(bool &execute);
+    CScriptVarLink *term(bool &execute);
+    CScriptVarLink *expression(bool &execute);
+    CScriptVarLink *condition(bool &execute);
+    CScriptVarLink *logic(bool &execute);
+    CScriptVarLink *base(bool &execute);
     void block(bool &execute);
     void statement(bool &execute);
     // parsing utility functions
-    CScriptVar *parseFunctionDefinition();
+    CScriptVarLink *parseFunctionDefinition();
     void parseFunctionArguments(CScriptVar *funcVar);
+
+    CScriptVarLink *findInScopes(const std::string &childName); ///< Finds a child, looking recursively up the scopes
+    /// Look up in any parent classes of the given object
+    CScriptVarLink *findInParentClasses(CScriptVar *object, const std::string &name);
 };
 
 #endif

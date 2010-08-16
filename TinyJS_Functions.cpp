@@ -26,6 +26,7 @@
 #include "TinyJS_Functions.h"
 #include <math.h>
 #include <cstdlib>
+#include <sstream>
 
 using namespace std;
 // ----------------------------------------------- Actual Functions
@@ -114,8 +115,21 @@ void scIntegerValueOf(CScriptVar *c, void *) {
     c->getReturnVar()->setInt(val);
 }
 
+void scJSONStringify(CScriptVar *c, void *) {
+    std::ostringstream result;
+    c->getParameter("obj")->getJSON(result);
+    c->getReturnVar()->setString(result.str());
+}
+
+void scEval(CScriptVar *c, void *data) {
+    CTinyJS *tinyJS = (CTinyJS *)data;
+    std::string str = c->getParameter("jsCode")->getString();
+    c->setReturnVar(tinyJS->evaluateComplex(str).var);
+}
+
 // ----------------------------------------------- Register Functions
 void registerFunctions(CTinyJS *tinyJS) {
+    tinyJS->addNative("function eval(jsCode)", scEval, tinyJS); // execute the given string and return the result
     tinyJS->addNative("function trace()", scTrace, tinyJS);
     tinyJS->addNative("function Object.dump()", scObjectDump, 0);
     tinyJS->addNative("function Object.clone()", scObjectClone, 0);
@@ -128,4 +142,7 @@ void registerFunctions(CTinyJS *tinyJS) {
     tinyJS->addNative("function String.charAt(pos)", scStringCharAt, 0);
     tinyJS->addNative("function Integer.parseInt(str)", scIntegerParseInt, 0); // string to int
     tinyJS->addNative("function Integer.valueOf(str)", scIntegerValueOf, 0); // value of a single character
+    tinyJS->addNative("function JSON.stringify(obj, replacer)", scJSONStringify, 0); // convert to JSON. replacer is ignored at the moment
+    // JSON.parse is left out as you can (unsafely!) use eval instead
 }
+

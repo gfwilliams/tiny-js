@@ -154,6 +154,7 @@ public:
   bool owned;
 
   CScriptVarLink(CScriptVar *var, const std::string &name = TINYJS_TEMP_NAME);
+  CScriptVarLink(const CScriptVarLink &link); ///< Copy constructor
   ~CScriptVarLink();
   void replaceWith(CScriptVar *newVar); ///< Replace the Variable pointed to
   void replaceWith(CScriptVarLink *newVar); ///< Replace the Variable pointed to (just dereferences)
@@ -169,6 +170,7 @@ public:
     ~CScriptVar(void);
 
     CScriptVar *getReturnVar(); ///< If this is a function, get the result value (for use by native functions)
+    void setReturnVar(CScriptVar *var); ///< Set the result value. Use this when setting complex return data as it avoids a deepCopy()
     CScriptVar *getParameter(const std::string &name); ///< If this is a function, get the parameter with the given name (for use by native functions)
 
     CScriptVarLink *findChild(const std::string &childName); ///< Tries to find a child with the given name, may return 0
@@ -210,7 +212,7 @@ public:
 
     void trace(std::string indentStr = "", const std::string &name = ""); ///< Dump out the contents of this using trace
     std::string getFlagsAsString();
-    void getJSON(std::ostringstream &destination); ///< Write out all the JS code needed to recreate this script variable to the stream (as JSON)
+    void getJSON(std::ostringstream &destination, const std::string linePrefix=""); ///< Write out all the JS code needed to recreate this script variable to the stream (as JSON)
     void setCallback(JSCallback callback, void *userdata);
 
     CScriptVarLink *firstChild;
@@ -239,6 +241,14 @@ public:
     ~CTinyJS();
 
     void execute(const std::string &code);
+    /** Evaluate the given code and return a link to a javascript object,
+     * useful for (dangerous) JSON parsing. If nothing to return, will return
+     * 'undefined' variable type. CScriptVarLink is returned as this will
+     * automatically unref the result as it goes out of scope. If you want to
+     * keep it, you must use ref() and unref() */
+    CScriptVarLink evaluateComplex(const std::string &code);
+    /** Evaluate the given code and return a string. If nothing to return, will return
+     * 'undefined' */
     std::string evaluate(const std::string &code);
 
     /// add a native function to be called from TinyJS

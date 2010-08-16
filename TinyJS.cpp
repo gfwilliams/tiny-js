@@ -56,11 +56,15 @@
                    Changed Callbacks to include user data pointer
                    Added some support for objects
                    Added more Java-esque builtin functions
+   Version 0.17 :  Now we don't deepCopy the parent object of the class
+                   Added JSON.stringify and eval()
+                   Nicer JSON indenting
+                   Fixed function output in JSON
+                   Added evaluateComplex
+                   Fixed some reentrancy issues with evaluate/execute
 
     NOTE: This doesn't support constructors for objects
           Recursive loops of data such as a.foo = a; fail to be garbage collected
-
-
 
  */
 
@@ -252,7 +256,7 @@ void CScriptLex::match(int expected_tk) {
     if (tk!=expected_tk) {
         ostringstream errorString;
         errorString << "Got " << getTokenStr(tk) << " expected " << getTokenStr(expected_tk)
-         << " at " << getPosition(tokenStart) << "in '" << data << "'";
+         << " at " << getPosition(tokenStart) << " in '" << data << "'";
         throw new CScriptException(errorString.str());
     }
     getNextToken();
@@ -531,6 +535,18 @@ CScriptVarLink::~CScriptVarLink() {
     var->unref();
 }
 
+CScriptVarLink::CScriptVarLink(const CScriptVarLink &link) {
+    // Copy constructor
+#if DEBUG_MEMORY
+    mark_allocated(this);
+#endif
+    this->name = link.name;
+    this->nextSibling = 0;
+    this->prevSibling = 0;
+    this->var = link.var->ref();
+    this->owned = false;
+}
+
 void CScriptVarLink::replaceWith(CScriptVar *newVar) {
     CScriptVar *oldVar = var;
     var = newVar->ref();
@@ -592,6 +608,11 @@ void CScriptVar::init() {
 CScriptVar *CScriptVar::getReturnVar() {
     return getParameter(TINYJS_RETURN_VAR);
 }
+
+void CScriptVar::setReturnVar(CScriptVar *var) {
+    findChildOrCreate(TINYJS_RETURN_VAR)->replaceWith(var);
+}
+
 
 CScriptVar *CScriptVar::getParameter(const std::string &name) {
     return findChildOrCreate(name)->var;
@@ -855,8 +876,16 @@ void CScriptVar::copyValue(CScriptVar *val) {
       // copy children of 'val'
       CScriptVarLink *child = val->firstChild;
       while (child) {
-          addChild(child->name, child->var->deepCopy());
-          child = child->nextSibling;
+        CScriptVar *copied;
+        // don't copy the 'parent' object...
+        if (child->name != TINYJS_PARENT_CLASS)
+          copied = child->var->deepCopy();
+        else
+          copied = child->var;
+
+        addChild(child->name, copied);
+
+        child = child->nextSibling;
       }
     } else {
       setUndefined();
@@ -868,7 +897,14 @@ CScriptVar *CScriptVar::deepCopy() {
     // copy children
     CScriptVarLink *child = firstChild;
     while (child) {
-        newVar->addChild(child->name, child->var->deepCopy());
+        CScriptVar *copied;
+        // don't copy the 'parent' object...
+        if (child->name != TINYJS_PARENT_CLASS)
+          copied = child->var->deepCopy();
+        else
+          copied = child->var;
+
+        newVar->addChild(child->name, copied);
         child = child->nextSibling;
     }
     return newVar;
@@ -908,14 +944,13 @@ string CScriptVar::getParsableString() {
     funcStr << "function (";
     // get list of parameters
     CScriptVarLink *link = firstChild;
-    bool first = true;
     while (link) {
-      if (!first) { funcStr << ","; first = false; }
       funcStr << link->name;
+      if (link->nextSibling) funcStr << ",";
       link = link->nextSibling;
     }
     // add function body
-    funcStr << ")" << getString();
+    funcStr << ") " << getString();
     return funcStr.str();
   }
   // if it is a string then we quote it
@@ -926,28 +961,29 @@ string CScriptVar::getParsableString() {
   return "undefined";
 }
 
-void CScriptVar::getJSON(ostringstream &destination) {
-    if (firstChild) {
+void CScriptVar::getJSON(ostringstream &destination, const string linePrefix) {
+    if (!firstChild || isFunction()) {
+      // no children or a function... just write value directly
+      destination << getParsableString();
+    } else {
+      string indentedLinePrefix = linePrefix+"  ";
       // children - handle with bracketed list
-      destination << " { \n";
+      destination << "{ \n";
       CScriptVarLink *link = firstChild;
       while (link) {
+        destination << indentedLinePrefix;
         if (isAlphaNum(link->name))
           destination  << link->name;
         else
           destination  << getJSString(link->name);
         destination  << " : ";
-        link->var->getJSON(destination);
-          link = link->nextSibling;
-          if (link)
-            destination  << ",\n";
-          else
-            destination  << "\n";
+        link->var->getJSON(destination, indentedLinePrefix);
+        link = link->nextSibling;
+        if (link) {
+          destination  << ",\n";
+        }
       }
-      destination << " }\n";
-    } else {
-      // no children, just write value directly
-      destination << getParsableString();
+      destination << "\n" << linePrefix << "}";
     }
 }
 
@@ -1004,6 +1040,7 @@ void CTinyJS::trace() {
 
 void CTinyJS::execute(const string &code) {
     CScriptLex *oldLex = l;
+    vector<CScriptVar*> oldScopes = scopes;
     l = new CScriptLex(code);
     scopes.clear();
     scopes.push_back(root);
@@ -1019,10 +1056,13 @@ void CTinyJS::execute(const string &code) {
     }
     delete l;
     l = oldLex;
+    scopes = oldScopes;
 }
 
-string CTinyJS::evaluate(const string &code) {
+CScriptVarLink CTinyJS::evaluateComplex(const string &code) {
     CScriptLex *oldLex = l;
+    vector<CScriptVar*> oldScopes = scopes;
+
     l = new CScriptLex(code);
     scopes.clear();
     scopes.push_back(root);
@@ -1039,11 +1079,15 @@ string CTinyJS::evaluate(const string &code) {
     }
     delete l;
     l = oldLex;
+    scopes = oldScopes;
 
-    string result = v ? v->var->getString() : "";
-    CLEAN(v);
+    if (v) return *v;
+    // return undefined...
+    return CScriptVarLink(new CScriptVar());
+}
 
-    return result;
+string CTinyJS::evaluate(const string &code) {
+    return evaluateComplex(code).var->getString();
 }
 
 void CTinyJS::parseFunctionArguments(CScriptVar *funcVar) {

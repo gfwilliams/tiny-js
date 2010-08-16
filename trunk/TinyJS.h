@@ -90,7 +90,7 @@ enum SCRIPTVAR_FLAGS {
 };
 
 #define TINYJS_RETURN_VAR "return"
-#define TINYJS_PARENT_CLASS "__parent"
+#define TINYJS_PROTOTYPE_CLASS "prototype"
 #define TINYJS_TEMP_NAME ""
 #define TINYJS_BLANK_DATA ""
 
@@ -183,6 +183,7 @@ public:
     void removeAllChildren();
     CScriptVar *getArrayIndex(int idx); ///< The the value at an array index
     void setArrayIndex(int idx, CScriptVar *value); ///< Set the value at an array index
+    int getChildren(); ///< Get the number of children
 
     int getInt();
     bool getBool() { return getInt() != 0; }

@@ -63,10 +63,13 @@
                    Added evaluateComplex
                    Fixed some reentrancy issues with evaluate/execute
    Version 0.18 :  Fixed some issues with code being executed when it shouldn't
+   Version 0.19 :  Added array.length
+                   Changed '__parent' to 'prototype' to bring it more in line with javascript
 
     NOTE: This doesn't support constructors for objects
           Recursive loops of data such as a.foo = a; fail to be garbage collected
-
+          'length' cannot be set, and will return the number of children,
+              regardless of their indices or whether the var is even an object
  */
 
 #include "TinyJS.h"
@@ -737,6 +740,16 @@ void CScriptVar::setArrayIndex(int idx, CScriptVar *value) {
     }
 }
 
+int CScriptVar::getChildren() {
+    int n = 0;
+    CScriptVarLink *link = firstChild;
+    while (link) {
+      n++;
+      link = link->nextSibling;
+    }
+    return n;
+}
+
 int CScriptVar::getInt() {
     /* strtol understands about hex and octal */
     if (isInt()) return strtol(data.c_str(),0,0);
@@ -879,7 +892,7 @@ void CScriptVar::copyValue(CScriptVar *val) {
       while (child) {
         CScriptVar *copied;
         // don't copy the 'parent' object...
-        if (child->name != TINYJS_PARENT_CLASS)
+        if (child->name != TINYJS_PROTOTYPE_CLASS)
           copied = child->var->deepCopy();
         else
           copied = child->var;
@@ -900,7 +913,7 @@ CScriptVar *CScriptVar::deepCopy() {
     while (child) {
         CScriptVar *copied;
         // don't copy the 'parent' object...
-        if (child->name != TINYJS_PARENT_CLASS)
+        if (child->name != TINYJS_PROTOTYPE_CLASS)
           copied = child->var->deepCopy();
         else
           copied = child->var;
@@ -1273,7 +1286,15 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
                   const string &name = l->tkStr;
                   CScriptVarLink *child = a->var->findChild(name);
                   if (!child) child = findInParentClasses(a->var, name);
-                  if (!child) child = a->var->addChild(name);
+                  if (!child) {
+                    /* if we haven't found this defined yet, use the built-in
+                       'length' properly */
+                    if (name == "length") {
+                      int l = a->var->getChildren();
+                      child = new CScriptVarLink(new CScriptVar(l));
+                    } else
+                      child = a->var->addChild(name);
+                  }
                   parent = a->var;
                   a = child;
                 }
@@ -1364,7 +1385,7 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
         }
         l->match(LEX_ID);
         CScriptVar *obj = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT);
-        obj->addChild(TINYJS_PARENT_CLASS, objClass->var);
+        obj->addChild(TINYJS_PROTOTYPE_CLASS, objClass->var);
         if (l->tk == '(') {
           l->match('(');
           l->match(')');
@@ -1765,11 +1786,11 @@ CScriptVarLink *CTinyJS::findInScopes(const std::string &childName) {
 /// Look up in any parent classes of the given object
 CScriptVarLink *CTinyJS::findInParentClasses(CScriptVar *object, const std::string &name) {
     // Look for links to actual parent classes
-    CScriptVarLink *parentClass = object->findChild(TINYJS_PARENT_CLASS);
+    CScriptVarLink *parentClass = object->findChild(TINYJS_PROTOTYPE_CLASS);
     while (parentClass) {
       CScriptVarLink *implementation = parentClass->var->findChild(name);
       if (implementation) return implementation;
-      parentClass = parentClass->var->findChild(TINYJS_PARENT_CLASS);
+      parentClass = parentClass->var->findChild(TINYJS_PROTOTYPE_CLASS);
     }
     // else fake it for strings and finally objects
     if (object->isString()) {

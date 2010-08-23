@@ -65,12 +65,6 @@ void scCharToInt(CScriptVar *c, void *) {
     c->getReturnVar()->setInt(val);
 }
 
-void scStringLength(CScriptVar *c, void *) {
-    string str = c->getParameter("this")->getString();
-    int val = str.length();
-    c->getReturnVar()->setInt(val);
-}
-
 void scStringIndexOf(CScriptVar *c, void *) {
     string str = c->getParameter("this")->getString();
     string search = c->getParameter("search")->getString();
@@ -136,7 +130,6 @@ void registerFunctions(CTinyJS *tinyJS) {
     tinyJS->addNative("function Math.rand()", scMathRand, 0);
     tinyJS->addNative("function Math.randInt(min, max)", scMathRandInt, 0);
     tinyJS->addNative("function charToInt(ch)", scCharToInt, 0); //  convert a character to an int - get its value
-    tinyJS->addNative("function String.length()", scStringLength, 0); // length of a string
     tinyJS->addNative("function String.indexOf(search)", scStringIndexOf, 0); // find the position of a string in a string, -1 if not
     tinyJS->addNative("function String.substring(lo,hi)", scStringSubstring, 0);
     tinyJS->addNative("function String.charAt(pos)", scStringCharAt, 0);

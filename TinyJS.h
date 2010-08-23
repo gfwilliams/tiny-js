@@ -73,11 +73,13 @@ enum SCRIPTVAR_FLAGS {
     SCRIPTVAR_UNDEFINED   = 0,
     SCRIPTVAR_FUNCTION    = 1,
     SCRIPTVAR_OBJECT      = 2,
-    SCRIPTVAR_NATIVE      = 4,
+    SCRIPTVAR_ARRAY       = 4,
     SCRIPTVAR_DOUBLE      = 8,  // floating point double
     SCRIPTVAR_INTEGER     = 16, // integer number
     SCRIPTVAR_STRING      = 32, // string
     SCRIPTVAR_NULL        = 64, // it seems null is its own data type
+
+    SCRIPTVAR_NATIVE      = 128, // to specify this is a native function
     SCRIPTVAR_NUMERICMASK = SCRIPTVAR_NULL |
                             SCRIPTVAR_DOUBLE |
                             SCRIPTVAR_INTEGER,
@@ -85,6 +87,8 @@ enum SCRIPTVAR_FLAGS {
                             SCRIPTVAR_INTEGER |
                             SCRIPTVAR_STRING |
                             SCRIPTVAR_FUNCTION |
+                            SCRIPTVAR_OBJECT |
+                            SCRIPTVAR_ARRAY |
                             SCRIPTVAR_NULL,
 
 };
@@ -164,7 +168,9 @@ public:
 class CScriptVar
 {
 public:
-    CScriptVar(std::string varData = TINYJS_BLANK_DATA, int varFlags = SCRIPTVAR_UNDEFINED);
+    CScriptVar(); ///< Create undefined
+    CScriptVar(const std::string &varData, int varFlags); ///< User defined
+    CScriptVar(const std::string &str); ///< Create a string
     CScriptVar(double varData);
     CScriptVar(int val);
     ~CScriptVar(void);
@@ -174,7 +180,7 @@ public:
     CScriptVar *getParameter(const std::string &name); ///< If this is a function, get the parameter with the given name (for use by native functions)
 
     CScriptVarLink *findChild(const std::string &childName); ///< Tries to find a child with the given name, may return 0
-    CScriptVarLink *findChildOrCreate(const std::string &childName); ///< Tries to find a child with the given name, or will create it
+    CScriptVarLink *findChildOrCreate(const std::string &childName, int varFlags=SCRIPTVAR_UNDEFINED); ///< Tries to find a child with the given name, or will create it with the given flags
     CScriptVarLink *findChildOrCreateByPath(const std::string &path); ///< Tries to find a child with the given path (separated by dots)
     CScriptVarLink *addChild(const std::string &childName, CScriptVar *child=NULL);
     CScriptVarLink *addChildNoDup(const std::string &childName, CScriptVar *child=NULL); ///< add a child overwriting any with the same name
@@ -183,6 +189,7 @@ public:
     void removeAllChildren();
     CScriptVar *getArrayIndex(int idx); ///< The the value at an array index
     void setArrayIndex(int idx, CScriptVar *value); ///< Set the value at an array index
+    int getArrayLength(); ///< If this is an array, return the number of items in it (else 0)
     int getChildren(); ///< Get the number of children
 
     int getInt();
@@ -201,6 +208,7 @@ public:
     bool isNumeric() { return (flags&SCRIPTVAR_NUMERICMASK)!=0; }
     bool isFunction() { return (flags&SCRIPTVAR_FUNCTION)!=0; }
     bool isObject() { return (flags&SCRIPTVAR_OBJECT)!=0; }
+    bool isArray() { return (flags&SCRIPTVAR_ARRAY)!=0; }
     bool isNative() { return (flags&SCRIPTVAR_NATIVE)!=0; }
     bool isUndefined() { return (flags & SCRIPTVAR_VARTYPEMASK) == SCRIPTVAR_UNDEFINED; }
     bool isNull() { return (flags & SCRIPTVAR_NULL)!=0; }
@@ -280,6 +288,7 @@ private:
     std::vector<CScriptVar*> scopes; /// stack of scopes when parsing
     CScriptVar *stringClass; /// Built in string class
     CScriptVar *objectClass; /// Built in object class
+    CScriptVar *arrayClass; /// Built in array class
 
     // parsing - in order of precedence
     CScriptVarLink *factor(bool &execute);

@@ -657,6 +657,7 @@ void CScriptVarLink::replaceWith(CScriptVarLink *newVar) {
 
 CScriptVar::CScriptVar() {
     refs = 0;
+	__proto__ = NULL;
 #if DEBUG_MEMORY
     mark_allocated(this);
 #endif
@@ -667,6 +668,7 @@ CScriptVar::CScriptVar() {
 
 CScriptVar::CScriptVar(const string &str) {
     refs = 0;
+	__proto__ = NULL;
 #if DEBUG_MEMORY
     mark_allocated(this);
 #endif
@@ -678,6 +680,7 @@ CScriptVar::CScriptVar(const string &str) {
 
 CScriptVar::CScriptVar(const string &varData, int varFlags) {
     refs = 0;
+	__proto__ = NULL;
 #if DEBUG_MEMORY
     mark_allocated(this);
 #endif
@@ -688,6 +691,7 @@ CScriptVar::CScriptVar(const string &varData, int varFlags) {
 
 CScriptVar::CScriptVar(double val) {
     refs = 0;
+	__proto__ = NULL;
 #if DEBUG_MEMORY
     mark_allocated(this);
 #endif
@@ -697,6 +701,7 @@ CScriptVar::CScriptVar(double val) {
 
 CScriptVar::CScriptVar(int val) {
     refs = 0;
+	__proto__ = NULL;
 #if DEBUG_MEMORY
     mark_allocated(this);
 #endif
@@ -706,6 +711,7 @@ CScriptVar::CScriptVar(int val) {
 
 CScriptVar::CScriptVar(bool val) {
     refs = 0;
+	__proto__ = NULL;
 #if DEBUG_MEMORY
     mark_allocated(this);
 #endif
@@ -718,6 +724,8 @@ CScriptVar::~CScriptVar(void) {
     mark_deallocated(this);
 #endif
     removeAllChildren();
+	if(flags & SCRIPTVAR_NATIVE_MFNC)
+		delete jsCallbackClass;
 }
 
 void CScriptVar::init() {
@@ -1164,6 +1172,12 @@ void CScriptVar::getJSON(ostringstream &destination, const string linePrefix) {
 void CScriptVar::setCallback(JSCallback callback, void *userdata) {
     jsCallback = callback;
     jsCallbackUserData = userdata;
+	flags = (flags & ~SCRIPTVAR_NATIVE) | SCRIPTVAR_NATIVE_FNC;
+}
+void CScriptVar::setCallback(NativeFncBase *callback, void *userdata) {
+	jsCallbackClass = callback;
+    jsCallbackUserData = userdata;
+	flags = (flags & ~SCRIPTVAR_NATIVE) | SCRIPTVAR_NATIVE_MFNC;
 }
 
 CScriptVar *CScriptVar::ref() {
@@ -1196,6 +1210,7 @@ CTinyJS::CTinyJS() {
     root->addChild("String", stringClass);
     root->addChild("Array", arrayClass);
     root->addChild("Object", objectClass);
+	addNative("function eval(jsCode)", this, &CTinyJS::scEval); // execute the given string and return the resul
 }
 
 CTinyJS::~CTinyJS() {
@@ -1276,11 +1291,17 @@ void CTinyJS::parseFunctionArguments(CScriptVar *funcVar) {
   }
   l->match(')');
 }
-
 void CTinyJS::addNative(const string &funcDesc, JSCallback ptr, void *userdata) {
+	CScriptVar *funcVar = addNative(funcDesc);
+    funcVar->setCallback(ptr, userdata);
+}
+void CTinyJS::addNative(const string &funcDesc, NativeFncBase *ptr, void *userdata) {
+	CScriptVar *funcVar = addNative(funcDesc);
+    funcVar->setCallback(ptr, userdata);
+}
+CScriptVar *CTinyJS::addNative(const string &funcDesc) {
     CScriptLex *oldLex = l;
     l = new CScriptLex(funcDesc);
-
     CScriptVar *base = root;
 
     l->match(LEX_R_FUNCTION);
@@ -1297,13 +1318,13 @@ void CTinyJS::addNative(const string &funcDesc, JSCallback ptr, void *userdata) 
       l->match(LEX_ID);
     }
 
-    CScriptVar *funcVar = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FUNCTION | SCRIPTVAR_NATIVE);
-    funcVar->setCallback(ptr, userdata);
+    CScriptVar *funcVar = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FUNCTION);
     parseFunctionArguments(funcVar);
     delete l;
     l = oldLex;
 
     base->addChild(funcName, funcVar);
+	return funcVar;
 }
 
 CScriptVarLink *CTinyJS::parseFunctionDefinition() {
@@ -1382,6 +1403,8 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
                 CScriptVarLink *functionRoot = new CScriptVarLink(new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FUNCTION));
                 if (parent)
                   functionRoot->var->addChildNoDup("this", parent);
+				else
+                  functionRoot->var->addChildNoDup("this", new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT)); // always add a this-Object
                 // grab in all parameters
                 CScriptVarLink *v = a->var->firstChild;
                 while (v) {
@@ -1409,7 +1432,10 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 
                 if (a->var->isNative()) {
                     ASSERT(a->var->jsCallback);
-                    a->var->jsCallback(functionRoot->var, a->var->jsCallbackUserData);
+					if (a->var->isNative_ClassMemberFnc())
+						(*a->var->jsCallbackClass)(functionRoot->var, a->var->jsCallbackUserData);
+                    else
+						a->var->jsCallback(functionRoot->var, a->var->jsCallbackUserData);
                 } else {
                     /* we just want to execute the block, but something could
                      * have messed up and left us with the wrong ScriptLex, so
@@ -1574,7 +1600,8 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
         l->match(LEX_ID);
         if (l->tk == '(') {
           l->match('(');
-          l->match(')');
+		  while(l->tk != ')') l->match(l->tk);
+		  l->match(')');
         }
       }
     }
@@ -2286,4 +2313,9 @@ CScriptVarLink *CTinyJS::findInParentClasses(CScriptVar *object, const std::stri
     if (implementation) return implementation;
 
     return 0;
+}
+
+void CTinyJS::scEval(CScriptVar *c, void *data) {
+    std::string str = c->getParameter("jsCode")->getString();
+    c->setReturnVar(evaluateComplex(str).var);
 }

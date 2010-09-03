@@ -94,7 +94,8 @@ enum SCRIPTVAR_FLAGS {
     SCRIPTVAR_STRING      = 64, // string
     SCRIPTVAR_NULL        = 128, // it seems null is its own data type
 
-    SCRIPTVAR_NATIVE      = 256, // to specify this is a native function
+    SCRIPTVAR_NATIVE_FNC  = 256, // to specify this is a native function
+    SCRIPTVAR_NATIVE_MFNC = 512, // to specify this is a native function from class->memberFunc
     SCRIPTVAR_NUMERICMASK = SCRIPTVAR_NULL |
                             SCRIPTVAR_DOUBLE |
                             SCRIPTVAR_INTEGER |
@@ -107,7 +108,8 @@ enum SCRIPTVAR_FLAGS {
                             SCRIPTVAR_OBJECT |
                             SCRIPTVAR_ARRAY |
                             SCRIPTVAR_NULL,
-
+	SCRIPTVAR_NATIVE      = SCRIPTVAR_NATIVE_FNC |
+							SCRIPTVAR_NATIVE_MFNC,
 };
 enum RUNTIME_FLAGS {
 	RUNTIME_CANBREAK	= 1,
@@ -189,6 +191,7 @@ public:
   void replaceWith(CScriptVarLink *newVar); ///< Replace the Variable pointed to (just dereferences)
 };
 
+class NativeFncBase;
 /// Variable class (containing a doubly-linked list of children)
 class CScriptVar
 {
@@ -238,6 +241,7 @@ public:
     bool isObject() { return (flags&SCRIPTVAR_OBJECT)!=0; }
     bool isArray() { return (flags&SCRIPTVAR_ARRAY)!=0; }
     bool isNative() { return (flags&SCRIPTVAR_NATIVE)!=0; }
+    bool isNative_ClassMemberFnc() { return (flags&SCRIPTVAR_NATIVE_MFNC)!=0; }
     bool isUndefined() { return (flags & SCRIPTVAR_VARTYPEMASK) == SCRIPTVAR_UNDEFINED; }
     bool isNull() { return (flags & SCRIPTVAR_NULL)!=0; }
     bool isBasic() { return firstChild==0; } ///< Is this *not* an array/object/etc
@@ -251,6 +255,7 @@ public:
     std::string getFlagsAsString();
     void getJSON(std::ostringstream &destination, const std::string linePrefix=""); ///< Write out all the JS code needed to recreate this script variable to the stream (as JSON)
     void setCallback(JSCallback callback, void *userdata);
+	void setCallback(NativeFncBase *callback, void *userdata);
 
     CScriptVarLink *firstChild;
     CScriptVarLink *lastChild;
@@ -261,15 +266,37 @@ public:
     int getRefs();
 protected:
     int refs;
-
+	CScriptVarLink *__proto__;
     std::string data;
     int flags;
+	union
+	{
     JSCallback jsCallback;
+	NativeFncBase *jsCallbackClass;
+	};
     void *jsCallbackUserData;
 
     void init(); // initilisation of data members
 
     friend class CTinyJS;
+};
+class NativeFncBase
+{
+public:
+	virtual void operator()(CScriptVar *v, void *userdata)=0;
+};
+template <class native>
+class NativeFnc : public NativeFncBase
+{
+public:
+	NativeFnc(native *ClassPtr, void (native::*ClassFnc)(CScriptVar *, void *))
+		: classPtr(ClassPtr), classFnc(ClassFnc){}
+	void operator()(CScriptVar *v, void *userdata)
+	{
+		(classPtr->*classFnc)(v, userdata);
+	}
+	native *classPtr;
+	void (native::*classFnc)(CScriptVar *v, void *userdata);
 };
 
 class CTinyJS {
@@ -302,7 +329,13 @@ public:
            tinyJS->addNative("function String.substring(lo, hi)", scSubstring, 0);
        \endcode
     */
-    void addNative(const std::string &funcDesc, JSCallback ptr, void *userdata);
+    void addNative(const std::string &funcDesc, JSCallback ptr, void *userdata=0);
+    void addNative(const std::string &funcDesc, NativeFncBase *ptr, void *userdata=0);
+	template<class C>
+	void addNative(const std::string &funcDesc, C *class_ptr, void(C::*class_fnc)(CScriptVar *, void *), void *userdata=0)
+	{
+		addNative(funcDesc, new NativeFnc<C>(class_ptr, class_fnc), userdata);
+	}
 
     /// Get the value of the given variable, or return 0
     const std::string *getVariable(const std::string &path);
@@ -339,6 +372,10 @@ private:
     CScriptVarLink *findInScopes(const std::string &childName); ///< Finds a child, looking recursively up the scopes
     /// Look up in any parent classes of the given object
     CScriptVarLink *findInParentClasses(CScriptVar *object, const std::string &name);
+	CScriptVar *addNative(const std::string &funcDesc);
+public: // native Functions
+	void scEval(CScriptVar *c, void *data);
+
 };
 
 #endif

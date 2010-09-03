@@ -133,7 +133,7 @@ void scEval(CScriptVar *c, void *data) {
 
 // ----------------------------------------------- Register Functions
 void registerFunctions(CTinyJS *tinyJS) {
-    tinyJS->addNative("function eval(jsCode)", scEval, tinyJS); // execute the given string and return the result
+//    tinyJS->addNative("function eval(jsCode)", scEval, tinyJS); // execute the given string and return the result
     tinyJS->addNative("function trace()", scTrace, tinyJS);
     tinyJS->addNative("function Object.dump()", scObjectDump, 0);
     tinyJS->addNative("function Object.clone()", scObjectClone, 0);

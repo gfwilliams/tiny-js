@@ -3,14 +3,13 @@
 
 #include "targetver.h"
 #include "stdafx.h"
-#include "42tiny-js.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
-#include <TinyJS.h>
-#include <TinyJS_Functions.h>
+#include "TinyJS.h"
+#include "TinyJS_Functions.h"
 
 #ifdef __GNUC__
 #	define UNUSED(x) __attribute__((__unused__))
@@ -24,7 +23,7 @@
 
 // Das einzige Anwendungsobjekt
 
-CWinApp theApp;
+//CWinApp theApp;
 
 using namespace std;
 //const char *code = "var a = 5; if (a==5) a=4; else a=3;";
@@ -40,11 +39,12 @@ void js_dump(CScriptVar *UNUSED(v), void *userdata) {
     js->root->trace(">  ");
 }
 
-int _tmain(int UNUSED(argc), TCHAR* UNUSED(argv[]), TCHAR* UNUSED(envp[]))
+int main(int UNUSED(argc), TCHAR* UNUSED(argv[]), TCHAR* UNUSED(envp[]))
 {
 	int nRetCode = 0;
 
-	// MFC initialisieren und drucken. Bei Fehlschlag Fehlermeldung aufrufen.
+/*
+// MFC initialisieren und drucken. Bei Fehlschlag Fehlermeldung aufrufen.
 	if (!AfxWinInit(::GetModuleHandle(NULL), NULL, ::GetCommandLine(), 0))
 	{
 		// TODO: Den Fehlercode an Ihre Anforderungen anpassen.
@@ -52,6 +52,7 @@ int _tmain(int UNUSED(argc), TCHAR* UNUSED(argv[]), TCHAR* UNUSED(envp[]))
 		nRetCode = 1;
 	}
 	else
+*/
 	{
 		// TODO: Hier den Code für das Verhalten der Anwendung schreiben.
 		 CTinyJS js;

@@ -26,6 +26,13 @@
 #ifndef TINYJS_H
 #define TINYJS_H
 
+#ifdef _WIN32
+#ifdef _DEBUG
+#define _CRTDBG_MAP_ALLOC
+#include <stdlib.h>
+#include <crtdbg.h>
+#endif
+#endif
 #include <string>
 #include <vector>
 
@@ -47,18 +54,29 @@ enum LEX_TYPES {
     LEX_NEQUAL,
     LEX_NTYPEEQUAL,
     LEX_LEQUAL,
+    LEX_LSHIFT,
+    LEX_LSHIFTEQUAL,
     LEX_GEQUAL,
+    LEX_RSHIFT,
+    LEX_RSHIFTEQUAL,
     LEX_PLUSEQUAL,
     LEX_MINUSEQUAL,
     LEX_PLUSPLUS,
     LEX_MINUSMINUS,
+    LEX_ANDEQUAL,
     LEX_ANDAND,
+    LEX_OREQUAL,
     LEX_OROR,
+    LEX_XOREQUAL,
     // reserved words
+#define LEX_R_LIST_START LEX_R_IF
     LEX_R_IF,
     LEX_R_ELSE,
+    LEX_R_DO,
     LEX_R_WHILE,
     LEX_R_FOR,
+    LEX_R_BREAK,
+    LEX_R_CONTINUE,
     LEX_R_FUNCTION,
     LEX_R_RETURN,
     LEX_R_VAR,
@@ -67,6 +85,8 @@ enum LEX_TYPES {
     LEX_R_NULL,
     LEX_R_UNDEFINED,
     LEX_R_NEW,
+
+	LEX_R_LIST_END /* always the last entry */
 };
 
 enum SCRIPTVAR_FLAGS {
@@ -122,13 +142,13 @@ public:
     std::string tkStr; ///< Data contained in the token we have here
 
     void match(int expected_tk); ///< Lexical match wotsit
-    std::string getTokenStr(int token); ///< Get the string representation of the given token
+    static std::string getTokenStr(int token); ///< Get the string representation of the given token
     void reset(); ///< Reset this lex so we can start again
 
     std::string getSubString(int pos); ///< Return a sub-string from the given position up until right now
     CScriptLex *getSubLex(int lastPosition); ///< Return a sub-lexer from the given position up until right now
 
-    std::string getPosition(int pos); ///< Return a string representing the position in lines and columns of the character pos given
+    std::string getPosition(int pos=-1); ///< Return a string representing the position in lines and columns of the character pos given
 
 protected:
     /* When we go into a loop, we use getSubLex to get a lexer for just the sub-part of the

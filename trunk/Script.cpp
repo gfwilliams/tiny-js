@@ -27,10 +27,11 @@
  * This is a simple program showing how to use TinyJS
  */
 
-#include <assert.h>
-#include <stdio.h>
 #include "TinyJS.h"
 #include "TinyJS_Functions.h"
+#include <assert.h>
+#include <stdio.h>
+
 
 //const char *code = "var a = 5; if (a==5) a=4; else a=3;";
 //const char *code = "{ var a = 4; var b = 1; while (a>0) { b = b * 2; a = a - 1; } var c = 5; }";
@@ -49,29 +50,35 @@ void js_dump(CScriptVar *v, void *userdata) {
 
 int main(int argc, char **argv)
 {
-  CTinyJS js;
+  CTinyJS *js = new CTinyJS();
   /* add the functions from TinyJS_Functions.cpp */
-  registerFunctions(&js);
+  registerFunctions(js);
   /* Add a native function */
-  js.addNative("function print(text)", &js_print, 0);
-  js.addNative("function dump()", &js_dump, &js);
+  js->addNative("function print(text)", &js_print, 0);
+  js->addNative("function dump()", &js_dump, js);
   /* Execute out bit of code - we could call 'evaluate' here if
      we wanted something returned */
   try {
-    js.execute("var lets_quit = 0; function quit() { lets_quit = 1; }");
-    js.execute("print(\"Interactive mode... Type quit(); to exit, or print(...); to print something, or dump() to dump the symbol table!\");");
+    js->execute("var lets_quit = 0; function quit() { lets_quit = 1; }");
+    js->execute("print(\"Interactive mode... Type quit(); to exit, or print(...); to print something, or dump() to dump the symbol table!\");");
   } catch (CScriptException *e) {
     printf("ERROR: %s\n", e->text.c_str());
   }
 
-  while (js.evaluate("lets_quit") == "0") {
+  while (js->evaluate("lets_quit") == "0") {
     char buffer[2048];
     fgets ( buffer, sizeof(buffer), stdin );
     try {
-      js.execute(buffer);
+      js->execute(buffer);
     } catch (CScriptException *e) {
       printf("ERROR: %s\n", e->text.c_str());
     }
   }
+  delete js;
+#ifdef _WIN32
+#ifdef _DEBUG
+  _CrtDumpMemoryLeaks();
+#endif
+#endif
   return 0;
 }

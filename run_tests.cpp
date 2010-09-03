@@ -27,13 +27,14 @@
  * This is a program to run all the tests in the tests folder...
  */
 
+#include "TinyJS.h"
+#include "TinyJS_Functions.h"
 #include <assert.h>
 #include <sys/stat.h>
 #include <string>
 #include <sstream>
 #include <stdio.h>
-#include "TinyJS.h"
-#include "TinyJS_Functions.h"
+
 
 //#define INSANE_MEMORY_DEBUG
 
@@ -267,6 +268,11 @@ int main(int argc, char **argv)
   printf("Done. %d tests, %d pass, %d fail\n", count, passed, count-passed);
 #ifdef INSANE_MEMORY_DEBUG
     memtracing_kill();
+#endif
+#ifdef _WIN32
+#ifdef _DEBUG
+  _CrtDumpMemoryLeaks();
+#endif
 #endif
   return 0;
 }

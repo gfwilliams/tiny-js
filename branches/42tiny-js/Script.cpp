@@ -27,28 +27,46 @@
  * This is a simple program showing how to use TinyJS
  */
 
+#if defined(_MSC_VER)
+#	include "targetver.h"
+#	include <afx.h>
+#endif
 #include "TinyJS.h"
 #include "TinyJS_Functions.h"
 #include <assert.h>
 #include <stdio.h>
 
+#if defined(_MSC_VER) && defined(_DEBUG)
+#	define new DEBUG_NEW
+#endif
+
+#ifdef __GNUC__
+#	define UNUSED(x) __attribute__((__unused__))
+#elif defined(_MSC_VER)
+#	ifndef UNUSED
+#		define UNUSED(x) x
+#		pragma warning( disable : 4100 ) /* unreferenced formal parameter */
+#	endif
+#else
+#	define UNUSED(x) x
+#endif
 
 //const char *code = "var a = 5; if (a==5) a=4; else a=3;";
 //const char *code = "{ var a = 4; var b = 1; while (a>0) { b = b * 2; a = a - 1; } var c = 5; }";
 //const char *code = "{ var b = 1; for (var i=0;i<4;i=i+1) b = b * 2; }";
 const char *code = "function myfunc(x, y) { return x + y; } var a = myfunc(1,2); print(a);";
 
-void js_print(CScriptVar *v, void *userdata) {
+void js_print(CScriptVar *v, void *UNUSED(userdata)) {
     printf("> %s\n", v->getParameter("text")->getString().c_str());
 }
 
-void js_dump(CScriptVar *v, void *userdata) {
+void js_dump(CScriptVar *UNUSED(v), void *userdata) {
     CTinyJS *js = (CTinyJS*)userdata;
     js->root->trace(">  ");
 }
 
 
-int main(int argc, char **argv)
+int main(int UNUSED(argc), char **UNUSED(argv))
 {
   CTinyJS *js = new CTinyJS();
   /* add the functions from TinyJS_Functions.cpp */
@@ -75,10 +93,10 @@ int main(int argc, char **argv)
     }
   }
   delete js;
-#ifdef _WIN32
-#ifdef _DEBUG
+#if defined(_WIN32) && defined(_DEBUG) && !defined(_MSC_VER)
+  // by Visual Studio we use the DEBUG_NEW stuff
   _CrtDumpMemoryLeaks();
 #endif
-#endif
+  new int[10];
   return 0;
 }

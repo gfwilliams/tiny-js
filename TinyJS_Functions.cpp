@@ -23,15 +23,25 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#include "TinyJS_Functions.h"
+#ifdef _MSC_VER
+#	include "targetver.h"
+#	include <afx.h>
+#endif
 #include <math.h>
 #include <cstdlib>
 #include <sstream>
+#include "TinyJS_Functions.h"
+
+#ifdef _DEBUG
+#	ifdef _MSC_VER
+#		define new DEBUG_NEW
+#	endif
+#endif
 
 using namespace std;
 // ----------------------------------------------- Actual Functions
 
-void scTrace(CScriptVar *c, void *userdata) {
+void scTrace(CScriptVar *UNUSED(c), void * userdata) {
     CTinyJS *js = (CTinyJS*)userdata;
     js->root->trace();
 }
@@ -123,7 +133,7 @@ void scEval(CScriptVar *c, void *data) {
 
 // ----------------------------------------------- Register Functions
 void registerFunctions(CTinyJS *tinyJS) {
-    tinyJS->addNative("function eval(jsCode)", scEval, tinyJS); // execute the given string and return the result
+//    tinyJS->addNative("function eval(jsCode)", scEval, tinyJS); // execute the given string and return the result
     tinyJS->addNative("function trace()", scTrace, tinyJS);
     tinyJS->addNative("function Object.dump()", scObjectDump, 0);
     tinyJS->addNative("function Object.clone()", scObjectClone, 0);

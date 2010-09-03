@@ -26,16 +26,10 @@
 #ifndef TINYJS_H
 #define TINYJS_H
 
-#ifdef _WIN32
-#ifdef _DEBUG
-#define _CRTDBG_MAP_ALLOC
-#include <stdlib.h>
-#include <crtdbg.h>
-#endif
-#endif
 #include <string>
 #include <vector>
 
+#undef TRACE
 #ifndef TRACE
 #define TRACE printf
 #endif // TRACE
@@ -96,22 +90,35 @@ enum SCRIPTVAR_FLAGS {
     SCRIPTVAR_ARRAY       = 4,
     SCRIPTVAR_DOUBLE      = 8,  // floating point double
     SCRIPTVAR_INTEGER     = 16, // integer number
-    SCRIPTVAR_STRING      = 32, // string
-    SCRIPTVAR_NULL        = 64, // it seems null is its own data type
+    SCRIPTVAR_BOOLEAN     = 32, // boolean
+    SCRIPTVAR_STRING      = 64, // string
+    SCRIPTVAR_NULL        = 128, // it seems null is its own data type
 
-    SCRIPTVAR_NATIVE      = 128, // to specify this is a native function
+    SCRIPTVAR_NATIVE_FNC  = 256, // to specify this is a native function
+    SCRIPTVAR_NATIVE_MFNC = 512, // to specify this is a native function from class->memberFunc
     SCRIPTVAR_NUMERICMASK = SCRIPTVAR_NULL |
                             SCRIPTVAR_DOUBLE |
-                            SCRIPTVAR_INTEGER,
+                            SCRIPTVAR_INTEGER |
+                            SCRIPTVAR_BOOLEAN,
     SCRIPTVAR_VARTYPEMASK = SCRIPTVAR_DOUBLE |
                             SCRIPTVAR_INTEGER |
+                            SCRIPTVAR_BOOLEAN |
                             SCRIPTVAR_STRING |
                             SCRIPTVAR_FUNCTION |
                             SCRIPTVAR_OBJECT |
                             SCRIPTVAR_ARRAY |
                             SCRIPTVAR_NULL,
-
+	SCRIPTVAR_NATIVE      = SCRIPTVAR_NATIVE_FNC |
+							SCRIPTVAR_NATIVE_MFNC,
 };
+enum RUNTIME_FLAGS {
+	RUNTIME_CANBREAK	= 1,
+	RUNTIME_BREAK		= 2,
+	RUNTIME_CANCONTINUE	= 4,
+	RUNTIME_CONTINUE	= 8,
+};
+
+#define RUNTIME_LOOP_MASK (RUNTIME_CANBREAK | RUNTIME_BREAK | RUNTIME_CANCONTINUE | RUNTIME_CONTINUE)
 
 #define TINYJS_RETURN_VAR "return"
 #define TINYJS_PROTOTYPE_CLASS "prototype"
@@ -175,7 +182,7 @@ public:
   CScriptVarLink *nextSibling;
   CScriptVarLink *prevSibling;
   CScriptVar *var;
-  bool owned;
+  CScriptVar *owned; // pointer to the owner CScriptVar
 
   CScriptVarLink(CScriptVar *var, const std::string &name = TINYJS_TEMP_NAME);
   CScriptVarLink(const CScriptVarLink &link); ///< Copy constructor
@@ -184,6 +191,7 @@ public:
   void replaceWith(CScriptVarLink *newVar); ///< Replace the Variable pointed to (just dereferences)
 };
 
+class NativeFncBase;
 /// Variable class (containing a doubly-linked list of children)
 class CScriptVar
 {
@@ -193,6 +201,7 @@ public:
     CScriptVar(const std::string &str); ///< Create a string
     CScriptVar(double varData);
     CScriptVar(int val);
+    CScriptVar(bool val);
     ~CScriptVar(void);
 
     CScriptVar *getReturnVar(); ///< If this is a function, get the result value (for use by native functions)
@@ -213,16 +222,18 @@ public:
     int getChildren(); ///< Get the number of children
 
     int getInt();
-    bool getBool() { return getInt() != 0; }
+    bool getBool();
     double getDouble();
     const std::string &getString();
     std::string getParsableString(); ///< get Data as a parsable javascript string
     void setInt(int num);
+    void setBool(bool val);
     void setDouble(double val);
     void setString(const std::string &str);
     void setUndefined();
 
     bool isInt() { return (flags&SCRIPTVAR_INTEGER)!=0; }
+    bool isBool() { return (flags&SCRIPTVAR_BOOLEAN)!=0; }
     bool isDouble() { return (flags&SCRIPTVAR_DOUBLE)!=0; }
     bool isString() { return (flags&SCRIPTVAR_STRING)!=0; }
     bool isNumeric() { return (flags&SCRIPTVAR_NUMERICMASK)!=0; }
@@ -230,6 +241,7 @@ public:
     bool isObject() { return (flags&SCRIPTVAR_OBJECT)!=0; }
     bool isArray() { return (flags&SCRIPTVAR_ARRAY)!=0; }
     bool isNative() { return (flags&SCRIPTVAR_NATIVE)!=0; }
+    bool isNative_ClassMemberFnc() { return (flags&SCRIPTVAR_NATIVE_MFNC)!=0; }
     bool isUndefined() { return (flags & SCRIPTVAR_VARTYPEMASK) == SCRIPTVAR_UNDEFINED; }
     bool isNull() { return (flags & SCRIPTVAR_NULL)!=0; }
     bool isBasic() { return firstChild==0; } ///< Is this *not* an array/object/etc
@@ -241,7 +253,8 @@ public:
     void trace(std::string indentStr = "", const std::string &name = ""); ///< Dump out the contents of this using trace
     std::string getFlagsAsString(); ///< For debugging - just dump a string version of the flags
     void getJSON(std::ostringstream &destination, const std::string linePrefix=""); ///< Write out all the JS code needed to recreate this script variable to the stream (as JSON)
-    void setCallback(JSCallback callback, void *userdata); ///< Set the callback for native functions
+    void setCallback(JSCallback callback, void *userdata);
+	void setCallback(NativeFncBase *callback, void *userdata);
 
     CScriptVarLink *firstChild;
     CScriptVarLink *lastChild;
@@ -252,12 +265,16 @@ public:
     int getRefs(); ///< Get the number of references to this script variable
 protected:
     int refs; ///< The number of references held to this - used for garbage collection
-
+	CScriptVarLink *__proto__;
     std::string data; ///< The contents of this variable if it is a string
     long intData; ///< The contents of this variable if it is an int
     double doubleData; ///< The contents of this variable if it is a double
     int flags; ///< the flags determine the type of the variable - int/double/string/etc
+	union
+	{
     JSCallback jsCallback; ///< Callback for native functions
+	NativeFncBase *jsCallbackClass; ///< Wrapper for Class-Member-Functions as Callback for native functions
+	};
     void *jsCallbackUserData; ///< user data passed as second argument to native functions
 
     void init(); ///< initialisation of data members
@@ -267,6 +284,25 @@ protected:
     void copySimpleData(CScriptVar *val);
 
     friend class CTinyJS;
+};
+
+class NativeFncBase
+{
+public:
+	virtual void operator()(CScriptVar *v, void *userdata)=0;
+};
+template <class native>
+class NativeFnc : public NativeFncBase
+{
+public:
+	NativeFnc(native *ClassPtr, void (native::*ClassFnc)(CScriptVar *, void *))
+		: classPtr(ClassPtr), classFnc(ClassFnc){}
+	void operator()(CScriptVar *v, void *userdata)
+	{
+		(classPtr->*classFnc)(v, userdata);
+	}
+	native *classPtr;
+	void (native::*classFnc)(CScriptVar *v, void *userdata);
 };
 
 class CTinyJS {
@@ -299,7 +335,13 @@ public:
            tinyJS->addNative("function String.substring(lo, hi)", scSubstring, 0);
        \endcode
     */
-    void addNative(const std::string &funcDesc, JSCallback ptr, void *userdata);
+    void addNative(const std::string &funcDesc, JSCallback ptr, void *userdata=0);
+    void addNative(const std::string &funcDesc, NativeFncBase *ptr, void *userdata=0);
+	template<class C>
+	void addNative(const std::string &funcDesc, C *class_ptr, void(C::*class_fnc)(CScriptVar *, void *), void *userdata=0)
+	{
+		addNative(funcDesc, new NativeFnc<C>(class_ptr, class_fnc), userdata);
+	}
 
     /// Get the value of the given variable, or return 0
     const std::string *getVariable(const std::string &path);
@@ -310,6 +352,7 @@ public:
     CScriptVar *root;   /// root of symbol table
 private:
     CScriptLex *l;             /// current lexer
+	int runtimeFlags;
     std::vector<CScriptVar*> scopes; /// stack of scopes when parsing
     CScriptVar *stringClass; /// Built in string class
     CScriptVar *objectClass; /// Built in object class
@@ -320,8 +363,12 @@ private:
     CScriptVarLink *unary(bool &execute);
     CScriptVarLink *term(bool &execute);
     CScriptVarLink *expression(bool &execute);
-    CScriptVarLink *condition(bool &execute);
-    CScriptVarLink *logic(bool &execute);
+	CScriptVarLink *binary_shift(bool &execute);
+    CScriptVarLink *relation(bool &execute, int set=LEX_EQUAL, int set_n='<');
+    CScriptVarLink *logic_binary(bool &execute, int op='|', int op_n1='^', int op_n2='&');
+    CScriptVarLink *logic(bool &execute, int op=LEX_OROR, int op_n=LEX_ANDAND);
+	CScriptVarLink *condition(bool &execute);
+	CScriptVarLink *assignment(bool &execute);
     CScriptVarLink *base(bool &execute);
     void block(bool &execute);
     void statement(bool &execute);
@@ -332,6 +379,10 @@ private:
     CScriptVarLink *findInScopes(const std::string &childName); ///< Finds a child, looking recursively up the scopes
     /// Look up in any parent classes of the given object
     CScriptVarLink *findInParentClasses(CScriptVar *object, const std::string &name);
+	CScriptVar *addNative(const std::string &funcDesc);
+public: // native Functions
+	void scEval(CScriptVar *c, void *data);
+
 };
 
 #endif

@@ -155,7 +155,7 @@ public:
     std::string getSubString(int pos); ///< Return a sub-string from the given position up until right now
     CScriptLex *getSubLex(int lastPosition); ///< Return a sub-lexer from the given position up until right now
 
-    std::string getPosition(int pos); ///< Return a string representing the position in lines and columns of the character pos given
+    std::string getPosition(int pos=-1); ///< Return a string representing the position in lines and columns of the character pos given
 
 protected:
     /* When we go into a loop, we use getSubLex to get a lexer for just the sub-part of the
@@ -222,7 +222,7 @@ public:
     int getChildren(); ///< Get the number of children
 
     int getInt();
-    bool getBool() { return getInt() != 0; }
+    bool getBool();
     double getDouble();
     const std::string &getString();
     std::string getParsableString(); ///< get Data as a parsable javascript string
@@ -250,9 +250,8 @@ public:
     void copyValue(CScriptVar *val); ///< copy the value from the value given
     CScriptVar *deepCopy(); ///< deep copy this node and return the result
 
-
     void trace(std::string indentStr = "", const std::string &name = ""); ///< Dump out the contents of this using trace
-    std::string getFlagsAsString();
+    std::string getFlagsAsString(); ///< For debugging - just dump a string version of the flags
     void getJSON(std::ostringstream &destination, const std::string linePrefix=""); ///< Write out all the JS code needed to recreate this script variable to the stream (as JSON)
     void setCallback(JSCallback callback, void *userdata);
 	void setCallback(NativeFncBase *callback, void *userdata);
@@ -263,23 +262,30 @@ public:
     /// For memory management/garbage collection
     CScriptVar *ref(); ///< Add reference to this variable
     void unref(); ///< Remove a reference, and delete this variable if required
-    int getRefs();
+    int getRefs(); ///< Get the number of references to this script variable
 protected:
-    int refs;
+    int refs; ///< The number of references held to this - used for garbage collection
 	CScriptVarLink *__proto__;
-    std::string data;
-    int flags;
+    std::string data; ///< The contents of this variable if it is a string
+    long intData; ///< The contents of this variable if it is an int
+    double doubleData; ///< The contents of this variable if it is a double
+    int flags; ///< the flags determine the type of the variable - int/double/string/etc
 	union
 	{
-    JSCallback jsCallback;
-	NativeFncBase *jsCallbackClass;
+    JSCallback jsCallback; ///< Callback for native functions
+	NativeFncBase *jsCallbackClass; ///< Wrapper for Class-Member-Functions as Callback for native functions
 	};
-    void *jsCallbackUserData;
+    void *jsCallbackUserData; ///< user data passed as second argument to native functions
 
-    void init(); // initilisation of data members
+    void init(); ///< initialisation of data members
+
+    /** Copy the basic data and flags from the variable given, with no
+      * children. Should be used internally only - by copyValue and deepCopy */
+    void copySimpleData(CScriptVar *val);
 
     friend class CTinyJS;
 };
+
 class NativeFncBase
 {
 public:
@@ -351,6 +357,7 @@ private:
     CScriptVar *stringClass; /// Built in string class
     CScriptVar *objectClass; /// Built in object class
     CScriptVar *arrayClass; /// Built in array class
+
     // parsing - in order of precedence
     CScriptVarLink *factor(bool &execute);
     CScriptVarLink *unary(bool &execute);

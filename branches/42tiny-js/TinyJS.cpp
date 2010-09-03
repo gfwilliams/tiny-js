@@ -191,7 +191,6 @@ void show_allocated() {
     allocatedVars.clear();
     allocatedLinks.clear();
 }
-
 #endif
 
 // ----------------------------------------------------------------------------------- Utils
@@ -275,6 +274,7 @@ CScriptException::CScriptException(const string &exceptionText) {
 }
 
 // ----------------------------------------------------------------------------------- CSCRIPTLEX
+
 CScriptLex::CScriptLex(const string &input) {
     data = _strdup(input.c_str());
     dataOwned = true;
@@ -590,6 +590,7 @@ CScriptLex *CScriptLex::getSubLex(int lastPosition) {
 }
 
 string CScriptLex::getPosition(int pos) {
+    if (pos<0) pos=tokenLastEnd;
     int line = 1,col = 1;
     for (int i=0;i<pos;i++) {
         char ch;
@@ -621,13 +622,6 @@ CScriptVarLink::CScriptVarLink(CScriptVar *var, const std::string &name) {
     this->owned = NULL;
 }
 
-CScriptVarLink::~CScriptVarLink() {
-#if DEBUG_MEMORY
-    mark_deallocated(this);
-#endif
-    var->unref();
-}
-
 CScriptVarLink::CScriptVarLink(const CScriptVarLink &link) {
     // Copy constructor
 #if DEBUG_MEMORY
@@ -638,6 +632,13 @@ CScriptVarLink::CScriptVarLink(const CScriptVarLink &link) {
     this->prevSibling = 0;
     this->var = link.var->ref();
     this->owned = NULL;
+}
+
+CScriptVarLink::~CScriptVarLink() {
+#if DEBUG_MEMORY
+    mark_deallocated(this);
+#endif
+    var->unref();
 }
 
 void CScriptVarLink::replaceWith(CScriptVar *newVar) {
@@ -663,7 +664,6 @@ CScriptVar::CScriptVar() {
 #endif
     init();
     flags = SCRIPTVAR_UNDEFINED;
-    data = TINYJS_BLANK_DATA;
 }
 
 CScriptVar::CScriptVar(const string &str) {
@@ -686,7 +686,12 @@ CScriptVar::CScriptVar(const string &varData, int varFlags) {
 #endif
     init();
     flags = varFlags;
-    data = varData;
+    if (varFlags & SCRIPTVAR_INTEGER) {
+      intData = strtol(varData.c_str(),0,0);
+    } else if (varFlags & SCRIPTVAR_DOUBLE) {
+      doubleData = strtod(varData.c_str(),0);
+    } else
+      data = varData;
 }
 
 CScriptVar::CScriptVar(double val) {
@@ -734,6 +739,9 @@ void CScriptVar::init() {
     flags = 0;
     jsCallback = 0;
     jsCallbackUserData = 0;
+    data = TINYJS_BLANK_DATA;
+    intData = 0;
+    doubleData = 0;
 }
 
 CScriptVar *CScriptVar::getReturnVar() {
@@ -897,16 +905,25 @@ int CScriptVar::getChildren() {
 
 int CScriptVar::getInt() {
     /* strtol understands about hex and octal */
-    if (isInt() || isBool()) return strtol(data.c_str(),0,0);
+    if (isInt()) return intData;
+//  if (isNull()) return 0;
+//  if (isUndefined()) return 0;
+    if (isDouble()) return (int)doubleData;
+    return 0;
+}
+
+bool CScriptVar::getBool() {
+    if (isInt()) return intData!=0;
     if (isNull()) return 0;
     if (isUndefined()) return 0;
-    if (isDouble()) return (int)getDouble();
+    if (isDouble()) return doubleData!=0;
+	if (isString()) return data.length()!=0;
     return 0;
 }
 
 double CScriptVar::getDouble() {
-    if (isDouble()) return strtod(data.c_str(),0);
-    if (isInt() || isBool()) return getInt();
+    if (isDouble()) return doubleData;
+    if (isInt() || isBool()) intData;
     if (isNull()) return 0;
     if (isUndefined()) return 0;
     return 0; /* or NaN? */
@@ -919,42 +936,60 @@ const string &CScriptVar::getString() {
     static string s_undefined = "undefined";
     static string s_true = "true";
     static string s_false = "false";
-	if (isBool()) return getInt()==0 ? s_false : s_true;
+	if (isBool()) return getInt() ? s_true : s_false;
+    if (isInt()) {
+      char buffer[32];
+      sprintf_s(buffer, sizeof(buffer), "%ld", intData);
+      data = buffer;
+      return data;
+    }
+    if (isDouble()) {
+      char buffer[32];
+      sprintf_s(buffer, sizeof(buffer), "%lf", doubleData);
+      data = buffer;
+      return data;
+    }
     if (isNull()) return s_null;
     if (isUndefined()) return s_undefined;
+    // are we just a string here?
     return data;
 }
 
 void CScriptVar::setInt(int val) {
-    char buf[256];
-    sprintf_s(buf, sizeof(buf), "%d", val);
     flags = (flags&~SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_INTEGER;
-    data = buf;
+    intData = val;
+    doubleData = 0;
+    data = TINYJS_BLANK_DATA;
 }
+
 void CScriptVar::setBool(bool val) {
-    char buf[256];
-    sprintf_s(buf, sizeof(buf), "%d", (int)val);
     flags = (flags&~SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_BOOLEAN;
-    data = buf;
+    intData = val?1:0;
+    doubleData = 0;
+    data = TINYJS_BLANK_DATA;
 }
 
 void CScriptVar::setDouble(double val) {
-    char buf[256];
-    sprintf_s(buf, sizeof(buf), "%lf", val);
     flags = (flags&~SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_DOUBLE;
-    data = buf;
+    doubleData = val;
+    intData = 0;
+    data = TINYJS_BLANK_DATA;
 }
 
 void CScriptVar::setString(const string &str) {
     // name sure it's not still a number or integer
     flags = (flags&~SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_STRING;
     data = str;
+    intData = 0;
+    doubleData = 0;
 }
 
 void CScriptVar::setUndefined() {
     // name sure it's not still a number or integer
     flags = (flags&~SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_UNDEFINED;
     data = TINYJS_BLANK_DATA;
+    intData = 0;
+    doubleData = 0;
     removeAllChildren();
 }
 
@@ -992,9 +1027,10 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
     // TODO Equality checks on classes/structures
     // Type equality check
     if (op == LEX_TYPEEQUAL || op == LEX_NTYPEEQUAL) {
+      // check type first, then call again to check data
       bool eql = ((a->flags & SCRIPTVAR_VARTYPEMASK) ==
                   (b->flags & SCRIPTVAR_VARTYPEMASK)) &&
-                 a->data == b->data;
+                 a->mathsOp(b, LEX_EQUAL);
       if (op == LEX_TYPEEQUAL)
         return new CScriptVar(eql);
       else
@@ -1014,7 +1050,22 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
             // use doubles
 			return DoMaths<double>(a, b, op);
 		}			
-	} else {
+
+    } else if (a->isArray()) {
+      /* Just check pointers */
+      switch (op) {
+           case LEX_EQUAL: return new CScriptVar(a==b);
+           case LEX_NEQUAL: return new CScriptVar(a!=b);
+           default: throw new CScriptException("This operation not supported on the Array datatype");
+      }
+    } else if (a->isObject()) {
+          /* Just check pointers */
+          switch (op) {
+               case LEX_EQUAL: return new CScriptVar(a==b);
+               case LEX_NEQUAL: return new CScriptVar(a!=b);
+               default: throw new CScriptException("This operation not supported on the Object datatype");
+          }
+    } else {
        string da = a->getString();
        string db = b->getString();
        // use strings
@@ -1033,11 +1084,16 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
     return 0;
 }
 
+void CScriptVar::copySimpleData(CScriptVar *val) {
+    data = val->data;
+    intData = val->intData;
+    doubleData = val->doubleData;
+    flags = (flags & ~SCRIPTVAR_VARTYPEMASK) | (val->flags & SCRIPTVAR_VARTYPEMASK);
+}
+
 void CScriptVar::copyValue(CScriptVar *val) {
     if (val) {
-      // we *don't* copy the name
-      data = val->data;
-      flags = (flags & ~SCRIPTVAR_VARTYPEMASK) | (val->flags & SCRIPTVAR_VARTYPEMASK);
+      copySimpleData(val);
       // remove all current children
       removeAllChildren();
       // copy children of 'val'
@@ -1060,7 +1116,8 @@ void CScriptVar::copyValue(CScriptVar *val) {
 }
 
 CScriptVar *CScriptVar::deepCopy() {
-    CScriptVar *newVar = new CScriptVar(data, flags);
+    CScriptVar *newVar = new CScriptVar();
+    newVar->copySimpleData(this);
     // copy children
     CScriptVarLink *child = firstChild;
     while (child) {
@@ -1081,7 +1138,7 @@ void CScriptVar::trace(string indentStr, const string &name) {
     TRACE("%s'%s' = '%s' %s\n",
         indentStr.c_str(),
         name.c_str(),
-        data.c_str(),
+        getString().c_str(),
         getFlagsAsString().c_str());
     string indent = indentStr+" ";
     CScriptVarLink *link = firstChild;
@@ -1241,7 +1298,7 @@ void CTinyJS::execute(const string &code) {
         while (l->tk) statement(execute);
     } catch (CScriptException *e) {
         ostringstream msg;
-        msg << "Error " << e->text << " at " << l->getPosition(l->tokenLastEnd);
+        msg << "Error " << e->text << " at " << l->getPosition();
         delete l;
         l = oldLex;
         throw new CScriptException(msg.str());
@@ -1261,10 +1318,14 @@ CScriptVarLink CTinyJS::evaluateComplex(const string &code) {
     CScriptVarLink *v = 0;
     try {
         bool execute = true;
-        v = base(execute);
+        do {
+          CLEAN(v);
+          v = base(execute);
+          if (l->tk!=LEX_EOF) l->match(';');
+        } while (l->tk!=LEX_EOF);
     } catch (CScriptException *e) {
         ostringstream msg;
-        msg << "Error " << e->text << " at " << l->getPosition(l->tokenLastEnd);
+        msg << "Error " << e->text << " at " << l->getPosition();
         delete l;
         l = oldLex;
         throw new CScriptException(msg.str());
@@ -1273,7 +1334,11 @@ CScriptVarLink CTinyJS::evaluateComplex(const string &code) {
     l = oldLex;
     scopes = oldScopes;
 
-    if (v) return *v;
+    if (v) {
+        CScriptVarLink r = *v;
+        CLEAN(v);
+        return r;
+    }
     // return undefined...
     return CScriptVarLink(new CScriptVar());
 }
@@ -1346,13 +1411,6 @@ CScriptVarLink *CTinyJS::parseFunctionDefinition() {
 }
 
 CScriptVarLink *CTinyJS::factor(bool &execute) {
-/*    if (l->tk=='(') {
-        l->match('(');
-        CScriptVarLink *a = base(execute);
-        l->match(')');
-        return a;
-    }
-*/
 	if (l->tk==LEX_R_TRUE) {
         l->match(LEX_R_TRUE);
         return new CScriptVarLink(new CScriptVar(true));
@@ -1400,11 +1458,11 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
                 }
                 l->match('(');
                 // create a new symbol table entry for execution of this function
-                CScriptVarLink *functionRoot = new CScriptVarLink(new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FUNCTION));
+                CScriptVar *functionRoot = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FUNCTION);
                 if (parent)
-                  functionRoot->var->addChildNoDup("this", parent);
+                  functionRoot->addChildNoDup("this", parent);
 				else
-                  functionRoot->var->addChildNoDup("this", new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT)); // always add a this-Object
+                  functionRoot->addChildNoDup("this", new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT)); // always add a this-Object
                 // grab in all parameters
                 CScriptVarLink *v = a->var->firstChild;
                 while (v) {
@@ -1412,10 +1470,10 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
                     if (execute) {
                         if (value->var->isBasic()) {
                           // pass by value
-                          functionRoot->var->addChild(v->name, value->var->deepCopy());
+                          functionRoot->addChild(v->name, value->var->deepCopy());
                         } else {
                           // pass by reference
-                          functionRoot->var->addChild(v->name, value->var);
+                          functionRoot->addChild(v->name, value->var);
                         }
                     }
                     CLEAN(value);
@@ -1427,15 +1485,15 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
                 CScriptVarLink *returnVar = NULL;
                 // execute function!
                 // add the function's execute space to the symbol table so we can recurse
-                CScriptVarLink *returnVarLink = functionRoot->var->addChild(TINYJS_RETURN_VAR);
-                scopes.push_back(functionRoot->var);
+                CScriptVarLink *returnVarLink = functionRoot->addChild(TINYJS_RETURN_VAR);
+                scopes.push_back(functionRoot);
 
                 if (a->var->isNative()) {
                     ASSERT(a->var->jsCallback);
 					if (a->var->isNative_ClassMemberFnc())
-						(*a->var->jsCallbackClass)(functionRoot->var, a->var->jsCallbackUserData);
+						(*a->var->jsCallbackClass)(functionRoot, a->var->jsCallbackUserData);
                     else
-						a->var->jsCallback(functionRoot->var, a->var->jsCallbackUserData);
+						a->var->jsCallback(functionRoot, a->var->jsCallbackUserData);
                 } else {
                     /* we just want to execute the block, but something could
                      * have messed up and left us with the wrong ScriptLex, so
@@ -1461,7 +1519,7 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
                 scopes.pop_back();
                 /* get the real return var before we remove it from our function */
                 returnVar = new CScriptVarLink(returnVarLink->var);
-                functionRoot->var->removeLink(returnVarLink);
+                functionRoot->removeLink(returnVarLink);
                 delete functionRoot;
                 if (returnVar)
                   a = returnVar;

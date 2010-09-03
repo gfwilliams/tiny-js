@@ -77,12 +77,18 @@
                    Fixed memory leak in evaluateComplex
                    Fixed memory leak in FOR loops
                    Fixed memory leak for unary minus
+   Version 0.23 :  Allowed evaluate[Complex] to take in semi-colon separated
+                     statements and then only return the value from the last one.
+                     Also checks to make sure *everything* was parsed.
+                   Ints + doubles are now stored in binary form (faster + more precise)
 
     NOTE: This doesn't support constructors for objects
           Recursive loops of data such as a.foo = a; fail to be garbage collected
           'length' cannot be set
           There is no ternary operator implemented yet
-	  The postfix increment operator returns the current value, not the previous as it should.
+	      The postfix increment operator returns the current value, not the
+            previous as it should.
+          Arrays are implemented as a linked list - hence a lookup is O(n)
 
     TODO:
           Utility va-args style function in TinyJS for executing a function directly
@@ -641,7 +647,6 @@ CScriptVar::CScriptVar() {
 #endif
     init();
     flags = SCRIPTVAR_UNDEFINED;
-    data = TINYJS_BLANK_DATA;
 }
 
 CScriptVar::CScriptVar(const string &str) {
@@ -662,7 +667,12 @@ CScriptVar::CScriptVar(const string &varData, int varFlags) {
 #endif
     init();
     flags = varFlags;
-    data = varData;
+    if (varFlags & SCRIPTVAR_INTEGER) {
+      intData = strtol(varData.c_str(),0,0);
+    } else if (varFlags & SCRIPTVAR_DOUBLE) {
+      doubleData = strtod(varData.c_str(),0);
+    } else
+      data = varData;
 }
 
 CScriptVar::CScriptVar(double val) {
@@ -696,6 +706,9 @@ void CScriptVar::init() {
     flags = 0;
     jsCallback = 0;
     jsCallbackUserData = 0;
+    data = TINYJS_BLANK_DATA;
+    intData = 0;
+    doubleData = 0;
 }
 
 CScriptVar *CScriptVar::getReturnVar() {
@@ -859,16 +872,16 @@ int CScriptVar::getChildren() {
 
 int CScriptVar::getInt() {
     /* strtol understands about hex and octal */
-    if (isInt()) return strtol(data.c_str(),0,0);
+    if (isInt()) return intData;
     if (isNull()) return 0;
     if (isUndefined()) return 0;
-    if (isDouble()) return (int)getDouble();
+    if (isDouble()) return (int)doubleData;
     return 0;
 }
 
 double CScriptVar::getDouble() {
-    if (isDouble()) return strtod(data.c_str(),0);
-    if (isInt()) return getInt();
+    if (isDouble()) return doubleData;
+    if (isInt()) return intData;
     if (isNull()) return 0;
     if (isUndefined()) return 0;
     return 0; /* or NaN? */
@@ -879,46 +892,63 @@ const string &CScriptVar::getString() {
      * I should really just use char* :) */
     static string s_null = "null";
     static string s_undefined = "undefined";
+    if (isInt()) {
+      char buffer[32];
+      sprintf_s(buffer, sizeof(buffer), "%ld", intData);
+      data = buffer;
+      return data;
+    }
+    if (isDouble()) {
+      char buffer[32];
+      sprintf_s(buffer, sizeof(buffer), "%lf", doubleData);
+      data = buffer;
+      return data;
+    }
     if (isNull()) return s_null;
     if (isUndefined()) return s_undefined;
+    // are we just a string here?
     return data;
 }
 
 void CScriptVar::setInt(int val) {
-    char buf[256];
-    sprintf_s(buf, sizeof(buf), "%d", val);
     flags = (flags&~SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_INTEGER;
-    data = buf;
+    intData = val;
+    doubleData = 0;
+    data = TINYJS_BLANK_DATA;
 }
 
 void CScriptVar::setDouble(double val) {
-    char buf[256];
-    sprintf_s(buf, sizeof(buf), "%lf", val);
     flags = (flags&~SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_DOUBLE;
-    data = buf;
+    doubleData = val;
+    intData = 0;
+    data = TINYJS_BLANK_DATA;
 }
 
 void CScriptVar::setString(const string &str) {
     // name sure it's not still a number or integer
     flags = (flags&~SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_STRING;
     data = str;
+    intData = 0;
+    doubleData = 0;
 }
 
 void CScriptVar::setUndefined() {
     // name sure it's not still a number or integer
     flags = (flags&~SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_UNDEFINED;
     data = TINYJS_BLANK_DATA;
+    intData = 0;
+    doubleData = 0;
     removeAllChildren();
 }
 
 CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
     CScriptVar *a = this;
-    // TODO Equality checks on classes/structures
     // Type equality check
     if (op == LEX_TYPEEQUAL || op == LEX_NTYPEEQUAL) {
+      // check type first, then call again to check data
       bool eql = ((a->flags & SCRIPTVAR_VARTYPEMASK) ==
                   (b->flags & SCRIPTVAR_VARTYPEMASK)) &&
-                 a->data == b->data;
+                 a->mathsOp(b, LEX_EQUAL);
       if (op == LEX_TYPEEQUAL)
         return new CScriptVar(eql);
       else
@@ -950,7 +980,7 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
                 case LEX_LEQUAL:    return new CScriptVar(da<=db);
                 case '>':     return new CScriptVar(da>db);
                 case LEX_GEQUAL:    return new CScriptVar(da>=db);
-                default: throw new CScriptException("This operation not supported on the int datatype");
+                default: throw new CScriptException("This operation not supported on the Int datatype");
             }
         } else {
             // use doubles
@@ -967,9 +997,23 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
                 case LEX_LEQUAL:    return new CScriptVar(da<=db);
                 case '>':     return new CScriptVar(da>db);
                 case LEX_GEQUAL:    return new CScriptVar(da>=db);
-                default: throw new CScriptException("This operation not supported on the double datatype");
+                default: throw new CScriptException("This operation not supported on the Double datatype");
             }
         }
+    } else if (a->isArray()) {
+      /* Just check pointers */
+      switch (op) {
+           case LEX_EQUAL: return new CScriptVar(a==b);
+           case LEX_NEQUAL: return new CScriptVar(a!=b);
+           default: throw new CScriptException("This operation not supported on the Array datatype");
+      }
+    } else if (a->isObject()) {
+          /* Just check pointers */
+          switch (op) {
+               case LEX_EQUAL: return new CScriptVar(a==b);
+               case LEX_NEQUAL: return new CScriptVar(a!=b);
+               default: throw new CScriptException("This operation not supported on the Object datatype");
+          }
     } else {
        string da = a->getString();
        string db = b->getString();
@@ -989,11 +1033,16 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
     return 0;
 }
 
+void CScriptVar::copySimpleData(CScriptVar *val) {
+    data = val->data;
+    intData = val->intData;
+    doubleData = val->doubleData;
+    flags = (flags & ~SCRIPTVAR_VARTYPEMASK) | (val->flags & SCRIPTVAR_VARTYPEMASK);
+}
+
 void CScriptVar::copyValue(CScriptVar *val) {
     if (val) {
-      // we *don't* copy the name
-      data = val->data;
-      flags = (flags & ~SCRIPTVAR_VARTYPEMASK) | (val->flags & SCRIPTVAR_VARTYPEMASK);
+      copySimpleData(val);
       // remove all current children
       removeAllChildren();
       // copy children of 'val'
@@ -1016,7 +1065,8 @@ void CScriptVar::copyValue(CScriptVar *val) {
 }
 
 CScriptVar *CScriptVar::deepCopy() {
-    CScriptVar *newVar = new CScriptVar(data, flags);
+    CScriptVar *newVar = new CScriptVar();
+    newVar->copySimpleData(this);
     // copy children
     CScriptVarLink *child = firstChild;
     while (child) {
@@ -1037,7 +1087,7 @@ void CScriptVar::trace(string indentStr, const string &name) {
     TRACE("%s'%s' = '%s' %s\n",
         indentStr.c_str(),
         name.c_str(),
-        data.c_str(),
+        getString().c_str(),
         getFlagsAsString().c_str());
     string indent = indentStr+" ";
     CScriptVarLink *link = firstChild;
@@ -1208,7 +1258,11 @@ CScriptVarLink CTinyJS::evaluateComplex(const string &code) {
     CScriptVarLink *v = 0;
     try {
         bool execute = true;
-        v = base(execute);
+        do {
+          CLEAN(v);
+          v = base(execute);
+          if (l->tk!=LEX_EOF) l->match(';');
+        } while (l->tk!=LEX_EOF);
     } catch (CScriptException *e) {
         ostringstream msg;
         msg << "Error " << e->text << " at " << l->getPosition();

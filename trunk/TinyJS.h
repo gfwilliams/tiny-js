@@ -238,11 +238,10 @@ public:
     void copyValue(CScriptVar *val); ///< copy the value from the value given
     CScriptVar *deepCopy(); ///< deep copy this node and return the result
 
-
     void trace(std::string indentStr = "", const std::string &name = ""); ///< Dump out the contents of this using trace
-    std::string getFlagsAsString();
+    std::string getFlagsAsString(); ///< For debugging - just dump a string version of the flags
     void getJSON(std::ostringstream &destination, const std::string linePrefix=""); ///< Write out all the JS code needed to recreate this script variable to the stream (as JSON)
-    void setCallback(JSCallback callback, void *userdata);
+    void setCallback(JSCallback callback, void *userdata); ///< Set the callback for native functions
 
     CScriptVarLink *firstChild;
     CScriptVarLink *lastChild;
@@ -250,16 +249,22 @@ public:
     /// For memory management/garbage collection
     CScriptVar *ref(); ///< Add reference to this variable
     void unref(); ///< Remove a reference, and delete this variable if required
-    int getRefs();
+    int getRefs(); ///< Get the number of references to this script variable
 protected:
-    int refs;
+    int refs; ///< The number of references held to this - used for garbage collection
 
-    std::string data;
-    int flags;
-    JSCallback jsCallback;
-    void *jsCallbackUserData;
+    std::string data; ///< The contents of this variable if it is a string
+    long intData; ///< The contents of this variable if it is an int
+    double doubleData; ///< The contents of this variable if it is a double
+    int flags; ///< the flags determine the type of the variable - int/double/string/etc
+    JSCallback jsCallback; ///< Callback for native functions
+    void *jsCallbackUserData; ///< user data passed as second argument to native functions
 
-    void init(); // initilisation of data members
+    void init(); ///< initialisation of data members
+
+    /** Copy the basic data and flags from the variable given, with no
+      * children. Should be used internally only - by copyValue and deepCopy */
+    void copySimpleData(CScriptVar *val);
 
     friend class CTinyJS;
 };

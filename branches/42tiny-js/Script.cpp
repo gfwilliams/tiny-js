@@ -35,7 +35,7 @@
 #include "TinyJS_Functions.h"
 #include <assert.h>
 #include <stdio.h>
-
+ 	
 #if defined(_MSC_VER) && defined(_DEBUG)
 #	define new DEBUG_NEW
 #endif
@@ -97,6 +97,5 @@ int main(int UNUSED(argc), char **UNUSED(argv))
   // by Visual Studio we use the DEBUG_NEW stuff
   _CrtDumpMemoryLeaks();
 #endif
-  new int[10];
   return 0;
 }

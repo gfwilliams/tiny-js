@@ -735,8 +735,6 @@ CScriptVar::~CScriptVar(void) {
 }
 
 void CScriptVar::init() {
-////    firstChild = 0;
-////    lastChild = 0;
 	flags = 0;
 	jsCallback = 0;
 	jsCallbackUserData = 0;
@@ -763,16 +761,6 @@ CScriptVarLink *CScriptVar::findChild(const string &childName) {
 	SCRIPTVAR_CHILDS::iterator it = Childs.find(childName);
 	if(it != Childs.end())
 		return it->second;
-////
-/*
-	CScriptVarLink *v = firstChild;
-	while (v) {
-			if (v->name.compare(childName)==0)
-				return v;
-			v = v->nextSibling;
-	}
-*/
-////
 	return NULL;
 }
 
@@ -780,12 +768,6 @@ CScriptVarLink *CScriptVar::findChildOrCreate(const string &childName, int varFl
 	CScriptVarLink *l = findChild(childName);
 	if (l) return l;
 	return addChild(childName, new CScriptVar(TINYJS_BLANK_DATA, varFlags));
-////
-/*
-
-	return addChild(childName, new CScriptVar(TINYJS_BLANK_DATA, varFlags));
-*/
-////
 }
 
 CScriptVarLink *CScriptVar::findChildOrCreateByPath(const std::string &path) {
@@ -798,9 +780,9 @@ CScriptVarLink *CScriptVar::findChildOrCreateByPath(const std::string &path) {
 }
 
 CScriptVarLink *CScriptVar::addChild(const std::string &childName, CScriptVar *child) {
-  if (isUndefined()) {
-	flags = SCRIPTVAR_OBJECT;
-  }
+	if (isUndefined()) {
+		flags = SCRIPTVAR_OBJECT;
+	}
 	// if no child supplied, create one
 	if (!child)
 		child = new CScriptVar();
@@ -811,19 +793,6 @@ CScriptVarLink *CScriptVar::addChild(const std::string &childName, CScriptVar *c
 	CScriptVarLink *link = new CScriptVarLink(child, childName);
 	link->owned = this;
 	return Childs[childName] = link;
-////
-/*
-	if (lastChild) {
-			lastChild->nextSibling = link;
-			link->prevSibling = lastChild;
-			lastChild = link;
-	} else {
-			firstChild = link;
-			lastChild = link;
-	}
-	return link;
-*/
-////
 }
 CScriptVarLink *CScriptVar::addChildNoDup(const std::string &childName, CScriptVar *child) {
 	// if no child supplied, create one
@@ -837,7 +806,6 @@ CScriptVarLink *CScriptVar::addChildNoDup(const std::string &childName, CScriptV
 			CScriptVarLink *link = new CScriptVarLink(child, childName);
 			link->owned = this;
 		v = Childs[childName] = link;
-////        v = addChild(childName, child);
 	}
 
 	return v;
@@ -851,18 +819,6 @@ void CScriptVar::removeChild(CScriptVar *child) {
 		}
 	}
 	ASSERT(0);// removeChild - the child is not atached to this var 
-////
-/*
-	CScriptVarLink *link = firstChild;
-	while (link) {
-			if (link->var == child)
-				break;
-			link = link->nextSibling;
-	}
-	ASSERT(link);
-	removeLink(link);
-*/
-////
 }
 
 void CScriptVar::removeLink(CScriptVarLink *link) {
@@ -872,18 +828,6 @@ void CScriptVar::removeLink(CScriptVarLink *link) {
 		ASSERT(0); // removeLink - the link is not atached to this var 
 #endif
 	Childs.erase(link->name);
-////
-/*
-	if (link->nextSibling)
-		link->nextSibling->prevSibling = link->prevSibling;
-	if (link->prevSibling)
-		link->prevSibling->nextSibling = link->nextSibling;
-	if (lastChild == link)
-			lastChild = link->prevSibling;
-	if (firstChild == link)
-			firstChild = link->nextSibling;
-*/
-////
 	delete link;
 }
 
@@ -893,18 +837,6 @@ void CScriptVar::removeAllChildren() {
 		delete it->second;
 		Childs.erase(it);
 	}
-////
-/*
-	CScriptVarLink *c = firstChild;
-	while (c) {
-			CScriptVarLink *t = c->nextSibling;
-			delete c;
-			c = t;
-	}
-	firstChild = 0;
-	lastChild = 0;
-*/
-////
 }
 
 CScriptVar *CScriptVar::getArrayIndex(int idx) {
@@ -941,33 +873,8 @@ int CScriptVar::getArrayLength() {
 			if (val > highest) highest = val;
 		}
 	}
-////
-/*
-	CScriptVarLink *link = firstChild;
-	while (link) {
-		if (isNumber(link->name)) {
-			int val = atoi(link->name.c_str());
-			if (val > highest) highest = val;
-		}
-		link = link->nextSibling;
-	}
-*/
-////
 	return highest+1;
 }
-//// moved to TinyJS.h
-/*
-int CScriptVar::getChildren() {
-	int n = 0;
-	CScriptVarLink *link = firstChild;
-	while (link) {
-		n++;
-		link = link->nextSibling;
-	}
-	return n;
-}
-*/
-////
 
 int CScriptVar::getInt() {
 	/* strtol understands about hex and octal */
@@ -979,7 +886,7 @@ int CScriptVar::getInt() {
 }
 
 bool CScriptVar::getBool() {
-	if (isInt()) return intData!=0;
+	if (isInt() || isBool()) return intData!=0;
 	if (isNull()) return 0;
 	if (isUndefined()) return 0;
 	if (isDouble()) return doubleData!=0;
@@ -1163,23 +1070,6 @@ void CScriptVar::copyValue(CScriptVar *val) {
 		// remove all current children
 		removeAllChildren();
 		// copy children of 'val'
-////
-/*
-		CScriptVarLink *child = val->firstChild;
-		while (child) {
-			CScriptVar *copied;
-			// don't copy the 'parent' object...
-			if (child->name != TINYJS_PROTOTYPE_CLASS)
-				copied = child->var->deepCopy();
-			else
-				copied = child->var;
-
-			addChild(child->name, copied);
-
-			child = child->nextSibling;
-		}
-*/
-////
 		for(SCRIPTVAR_CHILDS::iterator it = val->Childs.begin(); it != val->Childs.end(); ++it) {
 			CScriptVar *copied;
 			// don't copy the 'parent' object...
@@ -1199,22 +1089,6 @@ CScriptVar *CScriptVar::deepCopy() {
 	CScriptVar *newVar = new CScriptVar();
 	newVar->copySimpleData(this);
 	// copy children
-////
-/*
-	CScriptVarLink *child = firstChild;
-	while (child) {
-			CScriptVar *copied;
-			// don't copy the 'parent' object...
-			if (child->name != TINYJS_PROTOTYPE_CLASS)
-				copied = child->var->deepCopy();
-			else
-				copied = child->var;
-
-			newVar->addChild(child->name, copied);
-			child = child->nextSibling;
-	}
-*/
-////
 	for(SCRIPTVAR_CHILDS::iterator it = Childs.begin(); it != Childs.end(); ++it) {
 		CScriptVar *copied;
 		// don't copy the 'parent' object...
@@ -1235,15 +1109,6 @@ void CScriptVar::trace(string indentStr, const string &name) {
 			getString().c_str(),
 			getFlagsAsString().c_str());
 	string indent = indentStr+" ";
-////
-/*
-	CScriptVarLink *link = firstChild;
-	while (link) {
-		link->var->trace(indent, link->name);
-		link = link->nextSibling;
-	}
-*/
-////
 	for(SCRIPTVAR_CHILDS::iterator it = Childs.begin(); it != Childs.end(); ++it) {
 		it->second->var->trace(indent, it->first);
 	}
@@ -1270,21 +1135,11 @@ string CScriptVar::getParsableString() {
 	ostringstream funcStr;
 	funcStr << "function (";
 	// get list of parameters
-	SCRIPTVAR_CHILDS::iterator last_it = --(Childs.end());//// --last_it;
+	SCRIPTVAR_CHILDS::iterator last_it = --(Childs.end());
 	for(SCRIPTVAR_CHILDS::iterator it = Childs.begin(); it != Childs.end(); ++it) {
 		funcStr << it->first;
 		if (it != last_it) funcStr << ", ";
 	}
-////
-/*
-	CScriptVarLink *link = firstChild;
-	while (link) {
-		funcStr << link->name;
-		if (link->nextSibling) funcStr << ",";
-		link = link->nextSibling;
-	}
-*/
-////
 	// add function body
 	funcStr << ") " << getString();
 	return funcStr.str();
@@ -1302,7 +1157,7 @@ void CScriptVar::getJSON(ostringstream &destination, const string linePrefix) {
 		string indentedLinePrefix = linePrefix+"  ";
 		// children - handle with bracketed list
 		destination << "{ \n";
-		SCRIPTVAR_CHILDS::iterator last_it = --(Childs.end());//// --last_it;
+		SCRIPTVAR_CHILDS::iterator last_it = --(Childs.end());
 		for(SCRIPTVAR_CHILDS::iterator it = Childs.begin(); it != Childs.end(); ++it) {
 			destination << indentedLinePrefix;
 			if (isAlphaNum(it->first))
@@ -1316,25 +1171,6 @@ void CScriptVar::getJSON(ostringstream &destination, const string linePrefix) {
 			}
 		}
 		destination << "\n" << linePrefix << "}";
-////
-/*
-		CScriptVarLink *link = firstChild;
-		while (link) {
-			destination << indentedLinePrefix;
-			if (isAlphaNum(link->name))
-				destination  << link->name;
-			else
-				destination  << getJSString(link->name);
-			destination  << " : ";
-			link->var->getJSON(destination, indentedLinePrefix);
-			link = link->nextSibling;
-			if (link) {
-				destination  << ",\n";
-			}
-		}
-		destination << "\n" << linePrefix << "}";
-*/
-////
 	} else if (isArray()) {
 		string indentedLinePrefix = linePrefix+"  ";
 		destination << "[\n";
@@ -1537,7 +1373,11 @@ CScriptVarLink *CTinyJS::parseFunctionDefinition() {
   funcVar->var->data = l->getSubString(funcBegin);
   return funcVar;
 }
-
+string int2string(int intData) {
+	char buffer[32];
+	sprintf_s(buffer, sizeof(buffer), "%ld", intData);
+	return buffer;
+}
 CScriptVarLink *CTinyJS::factor(bool &execute) {
 	if (l->tk==LEX_R_TRUE) {
 			l->match(LEX_R_TRUE);
@@ -1592,41 +1432,44 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 				else
 					functionRoot->addChildNoDup("this", new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT)); // always add a this-Object
 				// grab in all parameters
+				CScriptVar *parameters = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT);
+				int parameters_idx = 0;
 				for(SCRIPTVAR_CHILDS::iterator it = a->var->Childs.begin(); it != a->var->Childs.end(); ++it) {
+					if (l->tk!=')') {
+						CScriptVarLink *value = assignment(execute);
+						if (execute) {
+							if (value->var->isBasic()) {
+								// pass by value
+								functionRoot->addChild( it->first, parameters->addChild(int2string(parameters_idx++) , value->var->deepCopy())->var);
+							} else {
+								// pass by reference
+								functionRoot->addChild(it->first, parameters->addChild(int2string(parameters_idx++), value->var->deepCopy())->var);
+							}
+						}
+						CLEAN(value);
+					} else {
+						functionRoot->addChild(it->first, new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_UNDEFINED));
+					}
+					if (l->tk!=')') l->match(',');
+				}
+				while(l->tk!=')') {
 					CScriptVarLink *value = assignment(execute);
 					if (execute) {
 						if (value->var->isBasic()) {
 							// pass by value
-							functionRoot->addChild( it->first, value->var->deepCopy());
+							parameters->addChild(int2string(parameters_idx++) , value->var->deepCopy());
 						} else {
 							// pass by reference
-							functionRoot->addChild(it->first, value->var);
+							parameters->addChild(int2string(parameters_idx++), value->var->deepCopy());
 						}
 					}
 					CLEAN(value);
 					if (l->tk!=')') l->match(',');
 				}
-////
-/*
-				CScriptVarLink *v = a->var->firstChild;
-				while (v) {
-				CScriptVarLink *value = base(execute);
-				if (execute) {
-				if (value->var->isBasic()) {
-				// pass by value
-				functionRoot->addChild(v->name, value->var->deepCopy());
-				} else {
-				// pass by reference
-				functionRoot->addChild(v->name, value->var);
-				}
-				}
-				CLEAN(value);
-				if (l->tk!=')') l->match(',');
-				v = v->nextSibling;
-				}
-*/
-////
+
 				l->match(')');
+				parameters->addChild("length", new CScriptVar(parameters_idx));
+				functionRoot->addChild("parameters", parameters);
 				// setup a return variable
 				CScriptVarLink *returnVar = NULL;
 				// execute function!

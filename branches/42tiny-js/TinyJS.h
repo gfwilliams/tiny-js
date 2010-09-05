@@ -98,25 +98,25 @@ enum SCRIPTVAR_FLAGS {
 	SCRIPTVAR_NATIVE_FNC  = 256, // to specify this is a native function
 	SCRIPTVAR_NATIVE_MFNC = 512, // to specify this is a native function from class->memberFunc
 	SCRIPTVAR_NUMERICMASK = SCRIPTVAR_NULL |
-				SCRIPTVAR_DOUBLE |
-				SCRIPTVAR_INTEGER |
-				SCRIPTVAR_BOOLEAN,
+									SCRIPTVAR_DOUBLE |
+									SCRIPTVAR_INTEGER |
+									SCRIPTVAR_BOOLEAN,
 	SCRIPTVAR_VARTYPEMASK = SCRIPTVAR_DOUBLE |
-				SCRIPTVAR_INTEGER |
-				SCRIPTVAR_BOOLEAN |
-				SCRIPTVAR_STRING |
-				SCRIPTVAR_FUNCTION |
-				SCRIPTVAR_OBJECT |
-				SCRIPTVAR_ARRAY |
-				SCRIPTVAR_NULL,
+									SCRIPTVAR_INTEGER |
+									SCRIPTVAR_BOOLEAN |
+									SCRIPTVAR_STRING |
+									SCRIPTVAR_FUNCTION |
+									SCRIPTVAR_OBJECT |
+									SCRIPTVAR_ARRAY |
+									SCRIPTVAR_NULL,
 	SCRIPTVAR_NATIVE      = SCRIPTVAR_NATIVE_FNC |
-							SCRIPTVAR_NATIVE_MFNC,
+									SCRIPTVAR_NATIVE_MFNC,
 };
 enum RUNTIME_FLAGS {
-	RUNTIME_CANBREAK	= 1,
-	RUNTIME_BREAK		= 2,
+	RUNTIME_CANBREAK		= 1,
+	RUNTIME_BREAK			= 2,
 	RUNTIME_CANCONTINUE	= 4,
-	RUNTIME_CONTINUE	= 8,
+	RUNTIME_CONTINUE		= 8,
 };
 
 #define RUNTIME_LOOP_MASK (RUNTIME_CANBREAK | RUNTIME_BREAK | RUNTIME_CANCONTINUE | RUNTIME_CONTINUE)
@@ -246,7 +246,6 @@ public:
 	bool isNative_ClassMemberFnc() { return (flags&SCRIPTVAR_NATIVE_MFNC)!=0; }
 	bool isUndefined() { return (flags & SCRIPTVAR_VARTYPEMASK) == SCRIPTVAR_UNDEFINED; }
 	bool isNull() { return (flags & SCRIPTVAR_NULL)!=0; }
-////    bool isBasic() { return firstChild==0; } ///< Is this *not* an array/object/etc
 	bool isBasic() { return Childs.empty(); } ///< Is this *not* an array/object/etc
 
 	CScriptVar *mathsOp(CScriptVar *b, int op); ///< do a maths op with another script variable
@@ -259,8 +258,6 @@ public:
 	void setCallback(JSCallback callback, void *userdata);
 	void setCallback(NativeFncBase *callback, void *userdata);
 
-//    CScriptVarLink *firstChild;
-//    CScriptVarLink *lastChild;
 	SCRIPTVAR_CHILDS Childs;
 
 	/// For memory management/garbage collection

@@ -85,38 +85,39 @@ enum LEX_TYPES {
 };
 
 enum SCRIPTVAR_FLAGS {
-	SCRIPTVAR_UNDEFINED   = 0,
-	SCRIPTVAR_FUNCTION    = 1,
-	SCRIPTVAR_OBJECT      = 2,
-	SCRIPTVAR_ARRAY       = 4,
-	SCRIPTVAR_DOUBLE      = 8,  // floating point double
-	SCRIPTVAR_INTEGER     = 16, // integer number
-	SCRIPTVAR_BOOLEAN     = 32, // boolean
-	SCRIPTVAR_STRING      = 64, // string
-	SCRIPTVAR_NULL        = 128, // it seems null is its own data type
+	SCRIPTVAR_UNDEFINED	= 0,
+	SCRIPTVAR_FUNCTION		= 1,
+	SCRIPTVAR_OBJECT			= 2,
+	SCRIPTVAR_ARRAY			= 4,
+	SCRIPTVAR_DOUBLE			= 8,  // floating point double
+	SCRIPTVAR_INTEGER			= 16, // integer number
+	SCRIPTVAR_BOOLEAN			= 32, // boolean
+	SCRIPTVAR_STRING			= 64, // string
+	SCRIPTVAR_NULL				= 128, // it seems null is its own data type
 
-	SCRIPTVAR_NATIVE_FNC  = 256, // to specify this is a native function
-	SCRIPTVAR_NATIVE_MFNC = 512, // to specify this is a native function from class->memberFunc
-	SCRIPTVAR_NUMERICMASK = SCRIPTVAR_NULL |
-									SCRIPTVAR_DOUBLE |
-									SCRIPTVAR_INTEGER |
-									SCRIPTVAR_BOOLEAN,
-	SCRIPTVAR_VARTYPEMASK = SCRIPTVAR_DOUBLE |
-									SCRIPTVAR_INTEGER |
-									SCRIPTVAR_BOOLEAN |
-									SCRIPTVAR_STRING |
-									SCRIPTVAR_FUNCTION |
-									SCRIPTVAR_OBJECT |
-									SCRIPTVAR_ARRAY |
-									SCRIPTVAR_NULL,
-	SCRIPTVAR_NATIVE      = SCRIPTVAR_NATIVE_FNC |
-									SCRIPTVAR_NATIVE_MFNC,
+	SCRIPTVAR_NATIVE_FNC		= 256, // to specify this is a native function
+	SCRIPTVAR_NATIVE_MFNC	= 512, // to specify this is a native function from class->memberFunc
+	SCRIPTVAR_NUMERICMASK	= SCRIPTVAR_NULL |
+									  SCRIPTVAR_DOUBLE |
+									  SCRIPTVAR_INTEGER |
+									  SCRIPTVAR_BOOLEAN,
+	SCRIPTVAR_VARTYPEMASK	= SCRIPTVAR_DOUBLE |
+									  SCRIPTVAR_INTEGER |
+									  SCRIPTVAR_BOOLEAN |
+									  SCRIPTVAR_STRING |
+									  SCRIPTVAR_FUNCTION |
+									  SCRIPTVAR_OBJECT |
+									  SCRIPTVAR_ARRAY |
+									  SCRIPTVAR_NULL,
+	SCRIPTVAR_NATIVE			= SCRIPTVAR_NATIVE_FNC |
+									  SCRIPTVAR_NATIVE_MFNC,
 };
 enum RUNTIME_FLAGS {
-	RUNTIME_CANBREAK		= 1,
-	RUNTIME_BREAK			= 2,
-	RUNTIME_CANCONTINUE	= 4,
-	RUNTIME_CONTINUE		= 8,
+	RUNTIME_CANBREAK			= 1,
+	RUNTIME_BREAK				= 2,
+	RUNTIME_CANCONTINUE		= 4,
+	RUNTIME_CONTINUE			= 8,
+	RUNTIME_NEW					= 16,
 };
 
 #define RUNTIME_LOOP_MASK (RUNTIME_CANBREAK | RUNTIME_BREAK | RUNTIME_CANCONTINUE | RUNTIME_CONTINUE)

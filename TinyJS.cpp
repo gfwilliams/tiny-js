@@ -236,6 +236,12 @@ void replace(string &str, char textFrom, const char *textTo) {
 		p = str.find(textFrom, p+sLen);
 	}
 }
+string &int2string(int intData, string &inString=string());
+string &int2string(int intData, string &inString) {
+	char buffer[32];
+	sprintf_s(buffer, sizeof(buffer), "%d", intData);
+	return inString=buffer;
+}
 
 /// convert the given string into a quoted string suitable for javascript
 std::string getJSString(const std::string &str) {
@@ -840,17 +846,14 @@ void CScriptVar::removeAllChildren() {
 }
 
 CScriptVar *CScriptVar::getArrayIndex(int idx) {
-	char sIdx[64];
-	sprintf_s(sIdx, sizeof(sIdx), "%d", idx);
-	CScriptVarLink *link = findChild(sIdx);
+	CScriptVarLink *link = findChild(int2string(idx));
 	if (link) return link->var;
 	else return new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_NULL); // undefined
 }
 
 void CScriptVar::setArrayIndex(int idx, CScriptVar *value) {
-	char sIdx[64];
-	sprintf_s(sIdx, sizeof(sIdx), "%d", idx);
-	CScriptVarLink *link = findChild(sIdx);
+	string sIdx;
+	CScriptVarLink *link = findChild(int2string(idx, sIdx));
 
 	if (link) {
 		if (value->isUndefined())
@@ -911,10 +914,7 @@ const string &CScriptVar::getString() {
 	static string s_false = "false";
 	if (isBool()) return getInt() ? s_true : s_false;
 	if (isInt()) {
-		char buffer[32];
-		sprintf_s(buffer, sizeof(buffer), "%ld", intData);
-		data = buffer;
-		return data;
+		return int2string(intData, data);
 	}
 	if (isDouble()) {
 		char buffer[32];
@@ -1135,10 +1135,10 @@ string CScriptVar::getParsableString() {
 	ostringstream funcStr;
 	funcStr << "function (";
 	// get list of parameters
-	SCRIPTVAR_CHILDS::iterator last_it = --(Childs.end());
+	int count = Childs.size();
 	for(SCRIPTVAR_CHILDS::iterator it = Childs.begin(); it != Childs.end(); ++it) {
 		funcStr << it->first;
-		if (it != last_it) funcStr << ", ";
+		if(--count) funcStr << ", ";
 	}
 	// add function body
 	funcStr << ") " << getString();
@@ -1157,7 +1157,7 @@ void CScriptVar::getJSON(ostringstream &destination, const string linePrefix) {
 		string indentedLinePrefix = linePrefix+"  ";
 		// children - handle with bracketed list
 		destination << "{ \n";
-		SCRIPTVAR_CHILDS::iterator last_it = --(Childs.end());
+		int count = Childs.size();
 		for(SCRIPTVAR_CHILDS::iterator it = Childs.begin(); it != Childs.end(); ++it) {
 			destination << indentedLinePrefix;
 			if (isAlphaNum(it->first))
@@ -1166,9 +1166,7 @@ void CScriptVar::getJSON(ostringstream &destination, const string linePrefix) {
 				destination  << getJSString(it->first);
 			destination  << " : ";
 			it->second->var->getJSON(destination, indentedLinePrefix);
-			if (it != last_it) {
-				destination  << ",\n";
-			}
+			if (--count) destination  << ",\n";
 		}
 		destination << "\n" << linePrefix << "}";
 	} else if (isArray()) {
@@ -1373,11 +1371,7 @@ CScriptVarLink *CTinyJS::parseFunctionDefinition() {
   funcVar->var->data = l->getSubString(funcBegin);
   return funcVar;
 }
-string int2string(int intData) {
-	char buffer[32];
-	sprintf_s(buffer, sizeof(buffer), "%ld", intData);
-	return buffer;
-}
+
 CScriptVarLink *CTinyJS::factor(bool &execute) {
 	if (l->tk==LEX_R_TRUE) {
 			l->match(LEX_R_TRUE);
@@ -1418,148 +1412,148 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 			l->match(LEX_ID);
 			while (l->tk=='(' || l->tk=='.' || l->tk=='[') {
 				if (l->tk=='(') { // ------------------------------------- Function Call
-				if (execute) {
-				if (!a->var->isFunction()) {
-				string errorMsg = "Expecting '";
-				errorMsg = errorMsg + a->name + "' to be a function";
-				throw new CScriptException(errorMsg.c_str());
-				}
-				l->match('(');
-				// create a new symbol table entry for execution of this function
-				CScriptVar *functionRoot = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FUNCTION);
-				if (parent)
-					functionRoot->addChildNoDup("this", parent);
-				else
-					functionRoot->addChildNoDup("this", new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT)); // always add a this-Object
-				// grab in all parameters
-				CScriptVar *parameters = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT);
-				int parameters_idx = 0;
-				for(SCRIPTVAR_CHILDS::iterator it = a->var->Childs.begin(); it != a->var->Childs.end(); ++it) {
-					if (l->tk!=')') {
-						CScriptVarLink *value = assignment(execute);
-						if (execute) {
-							if (value->var->isBasic()) {
-								// pass by value
-								functionRoot->addChild( it->first, parameters->addChild(int2string(parameters_idx++) , value->var->deepCopy())->var);
+					if (execute) {
+						if (!a->var->isFunction()) {
+							string errorMsg = "Expecting '";
+							errorMsg = errorMsg + a->name + "' to be a function";
+							throw new CScriptException(errorMsg.c_str());
+						}
+						l->match('(');
+						// create a new symbol table entry for execution of this function
+						CScriptVar *functionRoot = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FUNCTION);
+						if (parent)
+							functionRoot->addChildNoDup("this", parent);
+						else
+							functionRoot->addChildNoDup("this", new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT)); // always add a this-Object
+						// grab in all parameters
+						CScriptVar *parameters = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT);
+						int parameters_idx = 0;
+						for(SCRIPTVAR_CHILDS::iterator it = a->var->Childs.begin(); it != a->var->Childs.end(); ++it) {
+							if (l->tk!=')') {
+								CScriptVarLink *value = assignment(execute);
+								if (execute) {
+									if (value->var->isBasic()) {
+										// pass by value
+										functionRoot->addChild( it->first, parameters->addChild(int2string(parameters_idx++) , value->var->deepCopy())->var);
+									} else {
+										// pass by reference
+										functionRoot->addChild(it->first, parameters->addChild(int2string(parameters_idx++), value->var)->var);
+									}
+								}
+								CLEAN(value);
 							} else {
-								// pass by reference
-								functionRoot->addChild(it->first, parameters->addChild(int2string(parameters_idx++), value->var->deepCopy())->var);
+								functionRoot->addChild(it->first, new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_UNDEFINED));
+							}
+							if (l->tk!=')') l->match(',');
+						}
+						while(l->tk!=')') {
+							CScriptVarLink *value = assignment(execute);
+							if (execute) {
+								if (value->var->isBasic()) {
+									// pass by value
+									parameters->addChild(int2string(parameters_idx++) , value->var->deepCopy());
+								} else {
+									// pass by reference
+									parameters->addChild(int2string(parameters_idx++), value->var);
+								}
+							}
+							CLEAN(value);
+							if (l->tk!=')') l->match(',');
+						}
+
+						l->match(')');
+						parameters->addChild("length", new CScriptVar(parameters_idx));
+						functionRoot->addChild("parameters", parameters);
+						// setup a return variable
+						CScriptVarLink *returnVar = NULL;
+						// execute function!
+						// add the function's execute space to the symbol table so we can recurse
+						CScriptVarLink *returnVarLink = functionRoot->addChild(TINYJS_RETURN_VAR);
+						scopes.push_back(functionRoot);
+
+						if (a->var->isNative()) {
+							ASSERT(a->var->jsCallback);
+							if (a->var->isNative_ClassMemberFnc())
+								(*a->var->jsCallbackClass)(functionRoot, a->var->jsCallbackUserData);
+							else
+								a->var->jsCallback(functionRoot, a->var->jsCallbackUserData);
+						} else {
+							/* we just want to execute the block, but something could
+							 * have messed up and left us with the wrong ScriptLex, so
+							 * we want to be careful here... */
+							CScriptException *exception = 0;
+							CScriptLex *oldLex = l;
+							CScriptLex *newLex = new CScriptLex(a->var->getString());
+							l = newLex;
+							try {
+								block(execute);
+								// because return will probably have called this, and set execute to false
+								execute = true;
+							} catch (CScriptException *e) {
+								exception = e;
+							}
+							delete newLex;
+							l = oldLex;
+
+							if (exception)
+								throw exception;
+						}
+
+						scopes.pop_back();
+						/* get the real return var before we remove it from our function */
+						returnVar = new CScriptVarLink(returnVarLink->var);
+						functionRoot->removeLink(returnVarLink);
+						delete functionRoot;
+						if (returnVar)
+							a = returnVar;
+						else
+							a = new CScriptVarLink(new CScriptVar());
+					} else {
+						// function, but not executing - just parse args and be done
+						l->match('(');
+						while (l->tk != ')') {
+							CScriptVarLink *value = base(execute);
+							CLEAN(value);
+							if (l->tk!=')') l->match(',');
+						}
+						l->match(')');
+						if (l->tk == '{') {
+							block(execute);
+						}
+					}
+				} else if (l->tk == '.') { // ------------------------------------- Record Access
+					l->match('.');
+					if (execute) {
+						const string &name = l->tkStr;
+						CScriptVarLink *child = a->var->findChild(name);
+						if (!child) child = findInParentClasses(a->var, name);
+						if (!child) {
+							/* if we haven't found this defined yet, use the built-in
+							 'length' properly */
+							if (a->var->isArray() && name == "length") {
+								int l = a->var->getArrayLength();
+								child = new CScriptVarLink(new CScriptVar(l));
+							} else if (a->var->isString() && name == "length") {
+								int l = a->var->getString().size();
+								child = new CScriptVarLink(new CScriptVar(l));
+							} else {
+								child = a->var->addChild(name);
 							}
 						}
-						CLEAN(value);
-					} else {
-						functionRoot->addChild(it->first, new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_UNDEFINED));
+						parent = a->var;
+						a = child;
 					}
-					if (l->tk!=')') l->match(',');
-				}
-				while(l->tk!=')') {
-					CScriptVarLink *value = assignment(execute);
-					if (execute) {
-						if (value->var->isBasic()) {
-							// pass by value
-							parameters->addChild(int2string(parameters_idx++) , value->var->deepCopy());
-						} else {
-							// pass by reference
-							parameters->addChild(int2string(parameters_idx++), value->var->deepCopy());
-						}
-					}
-					CLEAN(value);
-					if (l->tk!=')') l->match(',');
-				}
-
-				l->match(')');
-				parameters->addChild("length", new CScriptVar(parameters_idx));
-				functionRoot->addChild("parameters", parameters);
-				// setup a return variable
-				CScriptVarLink *returnVar = NULL;
-				// execute function!
-				// add the function's execute space to the symbol table so we can recurse
-				CScriptVarLink *returnVarLink = functionRoot->addChild(TINYJS_RETURN_VAR);
-				scopes.push_back(functionRoot);
-
-				if (a->var->isNative()) {
-				ASSERT(a->var->jsCallback);
-					if (a->var->isNative_ClassMemberFnc())
-						(*a->var->jsCallbackClass)(functionRoot, a->var->jsCallbackUserData);
-				else
-						a->var->jsCallback(functionRoot, a->var->jsCallbackUserData);
-				} else {
-				/* we just want to execute the block, but something could
-				 * have messed up and left us with the wrong ScriptLex, so
-				 * we want to be careful here... */
-				CScriptException *exception = 0;
-				CScriptLex *oldLex = l;
-				CScriptLex *newLex = new CScriptLex(a->var->getString());
-				l = newLex;
-				try {
-				block(execute);
-				// because return will probably have called this, and set execute to false
-				execute = true;
-				} catch (CScriptException *e) {
-				exception = e;
-				}
-				delete newLex;
-				l = oldLex;
-
-				if (exception)
-				throw exception;
-				}
-
-				scopes.pop_back();
-				/* get the real return var before we remove it from our function */
-				returnVar = new CScriptVarLink(returnVarLink->var);
-				functionRoot->removeLink(returnVarLink);
-				delete functionRoot;
-				if (returnVar)
-				a = returnVar;
-				else
-				a = new CScriptVarLink(new CScriptVar());
-				} else {
-				// function, but not executing - just parse args and be done
-				l->match('(');
-				while (l->tk != ')') {
-				CScriptVarLink *value = base(execute);
-				CLEAN(value);
-				if (l->tk!=')') l->match(',');
-				}
-				l->match(')');
-				if (l->tk == '{') {
-				block(execute);
-				}
-				}
-				} else if (l->tk == '.') { // ------------------------------------- Record Access
-				l->match('.');
-				if (execute) {
-				const string &name = l->tkStr;
-				CScriptVarLink *child = a->var->findChild(name);
-				if (!child) child = findInParentClasses(a->var, name);
-				if (!child) {
-				/* if we haven't found this defined yet, use the built-in
-				 'length' properly */
-				if (a->var->isArray() && name == "length") {
-				int l = a->var->getArrayLength();
-				child = new CScriptVarLink(new CScriptVar(l));
-				} else if (a->var->isString() && name == "length") {
-				int l = a->var->getString().size();
-				child = new CScriptVarLink(new CScriptVar(l));
-				} else {
-				child = a->var->addChild(name);
-				}
-				}
-				parent = a->var;
-				a = child;
-				}
-				l->match(LEX_ID);
+					l->match(LEX_ID);
 				} else if (l->tk == '[') { // ------------------------------------- Array Access
-				l->match('[');
-				CScriptVarLink *index = expression(execute);
-				l->match(']');
-				if (execute) {
-				CScriptVarLink *child = a->var->findChildOrCreate(index->var->getString());
-				parent = a->var;
-				a = child;
-				}
-				CLEAN(index);
+					l->match('[');
+					CScriptVarLink *index = expression(execute);
+					l->match(']');
+					if (execute) {
+						CScriptVarLink *child = a->var->findChildOrCreate(index->var->getString());
+						parent = a->var;
+						a = child;
+					}
+					CLEAN(index);
 				} else ASSERT(0);
 			}
 			return a;
@@ -1604,11 +1598,8 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 			int idx = 0;
 			while (l->tk != ']') {
 				if (execute) {
-				char idx_str[16]; // big enough for 2^32
-				sprintf_s(idx_str, sizeof(idx_str), "%d",idx);
-
 				CScriptVarLink *a = base(execute);
-				contents->addChild(idx_str, a->var);
+				contents->addChild(int2string(idx), a->var);
 				CLEAN(a);
 				}
 				// no need to clean here, as it will definitely be used

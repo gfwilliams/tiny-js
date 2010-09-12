@@ -81,6 +81,7 @@ int main(int UNUSED(argc), char **UNUSED(argv))
     js->execute("print(\"Interactive mode... Type quit(); to exit, or print(...); to print something, or dump() to dump the symbol table!\");");
   } catch (CScriptException *e) {
     printf("ERROR: %s\n", e->text.c_str());
+	 delete e;
   }
 
   while (js->evaluate("lets_quit") == "0") {
@@ -90,6 +91,7 @@ int main(int UNUSED(argc), char **UNUSED(argv))
       js->execute(buffer);
     } catch (CScriptException *e) {
       printf("ERROR: %s\n", e->text.c_str());
+		delete e;
     }
   }
   delete js;

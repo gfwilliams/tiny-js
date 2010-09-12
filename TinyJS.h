@@ -30,6 +30,11 @@
 #include <vector>
 #include <map>
 
+#ifndef __GNUC__
+#	define __attribute__(x)
+#endif
+
+
 #undef TRACE
 #ifndef TRACE
 #define TRACE printf
@@ -80,6 +85,10 @@ enum LEX_TYPES {
 	LEX_R_NULL,
 	LEX_R_UNDEFINED,
 	LEX_R_NEW,
+	LEX_R_TRY,
+	LEX_R_CATCH,
+	LEX_R_FINALLY,
+	LEX_R_THROW,
 
 	LEX_R_LIST_END /* always the last entry */
 };
@@ -94,9 +103,11 @@ enum SCRIPTVAR_FLAGS {
 	SCRIPTVAR_BOOLEAN			= 32, // boolean
 	SCRIPTVAR_STRING			= 64, // string
 	SCRIPTVAR_NULL				= 128, // it seems null is its own data type
+	SCRIPTVAR_INFINITY		= 256, // it seems infinity is its own data type
+	SCRIPTVAR_NAN				= 512, // it seems NaN is its own data type
 
-	SCRIPTVAR_NATIVE_FNC		= 256, // to specify this is a native function
-	SCRIPTVAR_NATIVE_MFNC	= 512, // to specify this is a native function from class->memberFunc
+	SCRIPTVAR_NATIVE_FNC		= 1024, // to specify this is a native function
+	SCRIPTVAR_NATIVE_MFNC	= 2048, // to specify this is a native function from class->memberFunc
 	SCRIPTVAR_NUMERICMASK	= SCRIPTVAR_NULL |
 									  SCRIPTVAR_DOUBLE |
 									  SCRIPTVAR_INTEGER |
@@ -108,7 +119,10 @@ enum SCRIPTVAR_FLAGS {
 									  SCRIPTVAR_FUNCTION |
 									  SCRIPTVAR_OBJECT |
 									  SCRIPTVAR_ARRAY |
-									  SCRIPTVAR_NULL,
+									  SCRIPTVAR_NULL |
+									  SCRIPTVAR_INFINITY |
+									  SCRIPTVAR_NAN,
+									  
 	SCRIPTVAR_NATIVE			= SCRIPTVAR_NATIVE_FNC |
 									  SCRIPTVAR_NATIVE_MFNC,
 };
@@ -118,9 +132,12 @@ enum RUNTIME_FLAGS {
 	RUNTIME_CANCONTINUE		= 4,
 	RUNTIME_CONTINUE			= 8,
 	RUNTIME_NEW					= 16,
+	RUNTIME_CANTHROW			= 32,
+	RUNTIME_THROW				= 64,
 };
 
 #define RUNTIME_LOOP_MASK (RUNTIME_CANBREAK | RUNTIME_BREAK | RUNTIME_CANCONTINUE | RUNTIME_CONTINUE)
+#define RUNTIME_THROW_MASK (RUNTIME_CANTHROW | RUNTIME_THROW)
 
 #define TINYJS_RETURN_VAR "return"
 #define TINYJS_PROTOTYPE_CLASS "prototype"
@@ -133,7 +150,8 @@ std::string getJSString(const std::string &str);
 class CScriptException {
 public:
 	std::string text;
-	CScriptException(const std::string &exceptionText);
+	int pos;
+	CScriptException(const std::string &exceptionText, int Pos=-1);
 };
 
 class CScriptLex
@@ -247,6 +265,8 @@ public:
 	bool isNative_ClassMemberFnc() { return (flags&SCRIPTVAR_NATIVE_MFNC)!=0; }
 	bool isUndefined() { return (flags & SCRIPTVAR_VARTYPEMASK) == SCRIPTVAR_UNDEFINED; }
 	bool isNull() { return (flags & SCRIPTVAR_NULL)!=0; }
+	bool isNaN() { return (flags&SCRIPTVAR_NAN)!=0; }
+	bool isInfinity() { return (flags&SCRIPTVAR_INFINITY)!=0; }
 	bool isBasic() { return Childs.empty(); } ///< Is this *not* an array/object/etc
 
 	CScriptVar *mathsOp(CScriptVar *b, int op); ///< do a maths op with another script variable
@@ -359,6 +379,9 @@ public:
 	/// Get the value of the given variable, or return 0
 	const std::string *getVariable(const std::string &path);
 
+	/// throws an Error
+	bool throwError(bool &execute, const std::string &message);
+
 	/// Send all variables to stdout
 	void trace();
 
@@ -370,7 +393,8 @@ private:
 	CScriptVar *stringClass; /// Built in string class
 	CScriptVar *objectClass; /// Built in object class
 	CScriptVar *arrayClass; /// Built in array class
-
+	CScriptVarLink *tempScope; /// is temporary used by the '.' and '[' operator NULL meens the root-scope
+	CScriptVarLink *exeption; /// containing the exeption var by (runtimeFlags&RUNTIME_THROW) == true; 
 	// parsing - in order of precedence
 	CScriptVarLink *factor(bool &execute);
 	CScriptVarLink *unary(bool &execute);

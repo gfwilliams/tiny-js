@@ -377,6 +377,8 @@ string CScriptLex::getTokenStr(int token) {
 		case LEX_R_FALSE : return "false";
 		case LEX_R_NULL : return "null";
 		case LEX_R_UNDEFINED : return "undefined";
+		case LEX_R_INFINITY : return "Infinity";
+		case LEX_R_NAN : return "NaN";
 		case LEX_R_NEW : return "new";
 		case LEX_R_TRY : return "try";
 		case LEX_R_CATCH : return "catch";
@@ -440,6 +442,8 @@ void CScriptLex::getNextToken() {
 		else if (tkStr=="false") tk = LEX_R_FALSE;
 		else if (tkStr=="null") tk = LEX_R_NULL;
 		else if (tkStr=="undefined") tk = LEX_R_UNDEFINED;
+		else if (tkStr=="Infinity") tk = LEX_R_INFINITY;
+		else if (tkStr=="NaN") tk = LEX_R_NAN;
 		else if (tkStr=="new") tk = LEX_R_NEW;
 		else if (tkStr=="try") tk = LEX_R_TRY;
 		else if (tkStr=="catch") tk = LEX_R_CATCH;
@@ -1042,12 +1046,17 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
 			return new CScriptVar(!eql);
 	}
 	// do maths...
-	if (a->isUndefined() && b->isUndefined()) {
-		if (op == LEX_EQUAL) return new CScriptVar(true);
-		else if (op == LEX_NEQUAL) return new CScriptVar(false);
-		else return new CScriptVar(); // undefined
-	} else if ((a->isNumeric() || a->isUndefined()) &&
-					(b->isNumeric() || b->isUndefined())) {
+	if((a->isNaN() || a->isUndefined() || b->isNaN() || b->isUndefined()) && !a->isString() && !b->isString()) {
+		switch (op) {
+			case LEX_NEQUAL:	return new CScriptVar(!(a->isUndefined() && b->isUndefined()));
+			case LEX_EQUAL:	return new CScriptVar((a->isUndefined() && b->isUndefined()));
+			case LEX_GEQUAL:	
+			case LEX_LEQUAL:
+			case '<':
+			case '>':			return new CScriptVar(false);
+			default:				return new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_NAN);
+		}
+	} else if (a->isNumeric() && b->isNumeric()) {
 		if (!a->isDouble() && !b->isDouble()) {
 			// use ints
 			return DoMaths<int>(a, b, op);
@@ -1063,17 +1072,9 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
 			case LEX_NEQUAL:	return new CScriptVar(a->isInfinity() != b->isInfinity());
 			case '<':
 			case '>':			return new CScriptVar(false);
+			case '/':
+			case '-':			if(a->isInfinity() && b->isInfinity()) return new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_NAN);
 			default:				return new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_INFINITY);
-		}
-	} else if((a->isNaN() || b->isNaN()) && !a->isString() && !b->isString()) {
-		switch (op) {
-			case LEX_NEQUAL:	return new CScriptVar(true);
-			case LEX_EQUAL:
-			case LEX_GEQUAL:	
-			case LEX_LEQUAL:
-			case '<':
-			case '>':			return new CScriptVar(false);
-			default:				return new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_NAN);
 		}
 	} else if (a->isArray()) {
 		/* Just check pointers */
@@ -1089,7 +1090,7 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
 			case LEX_NEQUAL:	return new CScriptVar(a!=b);
 			default:				return new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_NAN);
 		}
-	} else {
+	} else { //Strings
 		string da = a->getString();
 		string db = b->getString();
 		if((a->isNumeric() || b->isNumeric()) && op != '+')
@@ -1465,6 +1466,14 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 	if (l->tk==LEX_R_UNDEFINED) {
 		l->match(LEX_R_UNDEFINED);
 		return new CScriptVarLink(new CScriptVar(TINYJS_BLANK_DATA,SCRIPTVAR_UNDEFINED));
+	}
+	if (l->tk==LEX_R_INFINITY) {
+		l->match(LEX_R_INFINITY);
+		return new CScriptVarLink(new CScriptVar(TINYJS_BLANK_DATA,SCRIPTVAR_INFINITY));
+	}
+	if (l->tk==LEX_R_NAN) {
+		l->match(LEX_R_NAN);
+		return new CScriptVarLink(new CScriptVar(TINYJS_BLANK_DATA,SCRIPTVAR_NAN));
 	}
 	if (l->tk==LEX_ID || l->tk=='(') {
 		CScriptVarLink *a;

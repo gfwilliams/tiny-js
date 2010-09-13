@@ -309,8 +309,8 @@ CScriptLex::~CScriptLex(void)
 			free((void*)data);
 }
 
-void CScriptLex::reset() {
-	dataPos = dataStart;
+void CScriptLex::reset(int toPos) {
+	dataPos = dataStart+toPos;
 	tokenStart = 0;
 	tokenEnd = 0;
 	tokenLastEnd = 0;
@@ -2147,7 +2147,7 @@ void CTinyJS::statement(bool &execute) {
 		l->match(LEX_R_DO);
 		bool loopCond = true; 
 		bool old_execute = execute;
-		int old_runtimeFlags = runtimeFlags;
+		int old_loop_runtimeFlags = runtimeFlags & RUNTIME_LOOP_MASK;
 		runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | RUNTIME_CANBREAK | RUNTIME_CANCONTINUE;
 		int whileBodyStart = l->tokenStart;
 		int whileCondStart = 0;
@@ -2166,7 +2166,7 @@ void CTinyJS::statement(bool &execute) {
 			if(!whileBody) whileBody = l->getSubLex(whileBodyStart);
 			if(old_execute && !execute)
 			{
-				// break;
+				// break or continue
 				if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
 				{
 					execute = old_execute;
@@ -2174,7 +2174,7 @@ void CTinyJS::statement(bool &execute) {
 						loopCond = false;
 					runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
 				}
-				// return, break or continue;
+				// other stuff e.g return, throw
 			}
 
 			if(!whileCond)
@@ -2199,16 +2199,16 @@ void CTinyJS::statement(bool &execute) {
 				oldLex = l;
 			}
 		}
-		runtimeFlags = old_runtimeFlags;
-			l = oldLex;
-			delete whileCond;
-			delete whileBody;
+		runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | old_loop_runtimeFlags;
+		l = oldLex;
+		delete whileCond;
+		delete whileBody;
 
-			if (loopCount<=0) {
-				root->trace();
-				TRACE("WHILE Loop exceeded %d iterations at %s\n", TINYJS_LOOP_MAX_ITERATIONS, l->getPosition(l->tokenLastEnd).c_str());
-				throw new CScriptException("LOOP_ERROR");
-			}
+		if (loopCount<=0) {
+			root->trace();
+			TRACE("WHILE Loop exceeded %d iterations at %s\n", TINYJS_LOOP_MAX_ITERATIONS, l->getPosition(l->tokenLastEnd).c_str());
+			throw new CScriptException("LOOP_ERROR");
+		}
 	} else if (l->tk==LEX_R_WHILE) {
 		// We do repetition by pulling out the string representing our statement
 		// there's definitely some opportunity for optimisation here
@@ -2224,14 +2224,14 @@ void CTinyJS::statement(bool &execute) {
 		int whileBodyStart = l->tokenStart;
 
 		bool old_execute = execute;
-		int old_runtimeFlags = runtimeFlags;
+		int old_loop_runtimeFlags = runtimeFlags & RUNTIME_LOOP_MASK;
 		runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | RUNTIME_CANBREAK | RUNTIME_CANCONTINUE;
 		statement(loopCond ? execute : noexecute);
 		CScriptLex *whileBody = l->getSubLex(whileBodyStart);
 		CScriptLex *oldLex = l;
 		if(loopCond && old_execute != execute)
 		{
-			// break;
+			// break or continue
 			if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
 			{
 				execute = old_execute;
@@ -2239,7 +2239,7 @@ void CTinyJS::statement(bool &execute) {
 					loopCond = false;
 				runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
 			}
-			// return, break or continue;
+			// other stuff e.g return, throw
 		}
 
 		int loopCount = TINYJS_LOOP_MAX_ITERATIONS;
@@ -2255,7 +2255,7 @@ void CTinyJS::statement(bool &execute) {
 				statement(execute);
 				if(!execute)
 				{
-					// break;
+					// break or continue
 					if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
 					{
 						execute = old_execute;
@@ -2263,11 +2263,11 @@ void CTinyJS::statement(bool &execute) {
 							loopCond = false;
 						runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
 					}
-					// return, break or continue;
+					// other stuff e.g return, throw
 				}
 			}
 		}
-		runtimeFlags = old_runtimeFlags;
+		runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | old_loop_runtimeFlags;
 		l = oldLex;
 		delete whileCond;
 		delete whileBody;
@@ -2279,104 +2279,176 @@ void CTinyJS::statement(bool &execute) {
 		}
 	} else if (l->tk==LEX_R_FOR) {
 		l->match(LEX_R_FOR);
+		bool for_each_in;
+		int error_pos = -1;
+		if((for_each_in = l->tk == LEX_ID && l->tkStr == "each")) l->match(LEX_ID);
 		l->match('(');
-		statement(execute); // initialisation
-		//l->match(';');
-		bool noexecute = false;
-		int forCondStart = l->tokenStart;
-		bool cond_empty = true;
-		bool loopCond = true;	// Empty Condition -->always true
-		CScriptVarLink *cond;
-		if(l->tk != ';')
-		{
-			cond_empty = false;
-			cond = base(execute); // condition
-			loopCond = execute && cond->var->getBool();
-			CLEAN(cond);
-		}
-		CScriptLex *forCond = l->getSubLex(forCondStart);
-		l->match(';');
-		bool iter_empty = true;
-		CScriptLex *forIter=NULL;
-		if(l->tk != ')')
-		{
-			iter_empty = false;
-			int forIterStart = l->tokenStart;
-			base(noexecute); // iterator
-			forIter = l->getSubLex(forIterStart);
-		}
-		l->match(')');
-		int forBodyStart = l->tokenStart;
-		bool old_execute = execute;
-		int old_runtimeFlags = runtimeFlags;
-		runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | RUNTIME_CANBREAK | RUNTIME_CANCONTINUE;
-		statement(loopCond ? execute : noexecute);
-		CScriptLex *forBody = l->getSubLex(forBodyStart);
-		CScriptLex *oldLex = l;
-		if(loopCond && old_execute != execute)
-		{
-			// break;
-			if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
-			{
-				execute = old_execute;
-				if(runtimeFlags & RUNTIME_BREAK)
-					loopCond = false;
-				runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
-			}
-			// return, break or continue;
-		}
+		int pos=l->tokenStart;
+		bool for_in = false;
+		CScriptVarLink *for_var = NULL;
+		CScriptVarLink *for_var_tempScope = NULL;
+		CScriptVarLink *for_in_var = NULL;
+		if(l->tk == LEX_ID) {
+			for_var = factor(execute);
+			for_var_tempScope = tempScope;
 
-		if (loopCond && !iter_empty) {
-			forIter->reset();
-			l = forIter;
-			base(execute);
-		}
-		int loopCount = TINYJS_LOOP_MAX_ITERATIONS;
-		while (execute && loopCond && loopCount-->0) {
-			if(!cond_empty)
-			{
-				forCond->reset();
-				l = forCond;
-				cond = base(execute);
-				loopCond = cond->var->getBool();
-				CLEAN(cond);
+//			l->match(LEX_ID);
+			if(l->tk == LEX_ID && l->tkStr == "in") {
+				for_in = true;
+				l->match(LEX_ID);
+				try {
+					for_in_var = factor(execute);
+				} catch (CScriptException *e) {
+					CLEAN(for_var);
+					throw e;
+				}
+				if (l->tk != ')') {
+					CLEAN(for_var);
+					CLEAN(for_in_var);
+				}
+				l->match(')');
+			} else {
+				error_pos = l->tokenEnd;
+				l->reset(pos);
 			}
-			if (execute && loopCond) {
-				forBody->reset();
-				l = forBody;
+		} 
+		if(for_each_in && !for_in)
+			throw new CScriptException("invalid for each loop", error_pos);
+		else if (for_in) {
+			if (execute && !for_var->owned) {
+				CScriptVarLink *real_for_var;
+				if(tempScope)
+					real_for_var = tempScope->var->addChildNoDup(for_var->name, for_var->var);
+				else
+					real_for_var = root->addChildNoDup(for_var->name, for_var->var);
+				CLEAN(tempScope); tempScope=NULL;
+				CLEAN(for_var);
+				for_var = real_for_var;
+			}
+			int forBodyStart = l->tokenStart;
+			bool old_execute = execute;
+			int old_loop_runtimeFlags = runtimeFlags & RUNTIME_LOOP_MASK;
+			runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | RUNTIME_CANBREAK | RUNTIME_CANCONTINUE;
+			for(SCRIPTVAR_CHILDS::iterator it = for_in_var->var->Childs.begin(); execute && it != for_in_var->var->Childs.end(); ++it) {
+				if (for_each_in)
+					for_var->replaceWith(it->second->var);
+				else
+					for_var->replaceWith(new CScriptVar(it->first));
+				l->reset(forBodyStart);
 				statement(execute);
 				if(!execute)
 				{
-					// break or continue;
+					// break or continue
 					if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
 					{
 						execute = old_execute;
 						if(runtimeFlags & RUNTIME_BREAK)
-							loopCond = false;
+							break;
 						runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
 					}
-					// return nothing to do
+					// other stuff e.g return, throw
 				}
 			}
-			if (execute && loopCond && !iter_empty) {
+			runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | old_loop_runtimeFlags;
+		} else {
+			statement(execute); // initialisation
+			//l->match(';');
+			bool noexecute = false;
+			int forCondStart = l->tokenStart;
+			bool cond_empty = true;
+			bool loopCond = true;	// Empty Condition -->always true
+			CScriptVarLink *cond;
+			if(l->tk != ';')
+			{
+				cond_empty = false;
+				cond = base(execute); // condition
+				loopCond = execute && cond->var->getBool();
+				CLEAN(cond);
+			}
+			CScriptLex *forCond = l->getSubLex(forCondStart);
+			l->match(';');
+			bool iter_empty = true;
+			CScriptLex *forIter=NULL;
+			if(l->tk != ')')
+			{
+				iter_empty = false;
+				int forIterStart = l->tokenStart;
+				base(noexecute); // iterator
+				forIter = l->getSubLex(forIterStart);
+			}
+			l->match(')');
+			int forBodyStart = l->tokenStart;
+			bool old_execute = execute;
+			int old_loop_runtimeFlags = runtimeFlags & RUNTIME_LOOP_MASK;
+			runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | RUNTIME_CANBREAK | RUNTIME_CANCONTINUE;
+			statement(loopCond ? execute : noexecute);
+			CScriptLex *forBody = l->getSubLex(forBodyStart);
+			CScriptLex *oldLex = l;
+			if(loopCond && old_execute != execute)
+			{
+				// break or continue
+				if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
+				{
+					execute = old_execute;
+					if(runtimeFlags & RUNTIME_BREAK)
+						loopCond = false;
+					runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
+				}
+				// other stuff e.g return, throw
+			}
+
+			if (loopCond && !iter_empty) {
 				forIter->reset();
 				l = forIter;
 				base(execute);
 			}
-		}
-		runtimeFlags = old_runtimeFlags;
-		l = oldLex;
-		delete forCond;
-		delete forIter;
-		delete forBody;
-		if (loopCount<=0) {
-			root->trace();
-			TRACE("FOR Loop exceeded %d iterations at %s\n", TINYJS_LOOP_MAX_ITERATIONS, l->getPosition(l->tokenLastEnd).c_str());
-			throw new CScriptException("LOOP_ERROR");
+			int loopCount = TINYJS_LOOP_MAX_ITERATIONS;
+			while (execute && loopCond && loopCount-->0) {
+				if(!cond_empty)
+				{
+					forCond->reset();
+					l = forCond;
+					cond = base(execute);
+					loopCond = cond->var->getBool();
+					CLEAN(cond);
+				}
+				if (execute && loopCond) {
+					forBody->reset();
+					l = forBody;
+					statement(execute);
+					if(!execute)
+					{
+						// break or continue;
+						if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
+						{
+							execute = old_execute;
+							if(runtimeFlags & RUNTIME_BREAK)
+								loopCond = false;
+							runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
+						}
+						// return nothing to do
+					}
+				}
+				if (execute && loopCond && !iter_empty) {
+					forIter->reset();
+					l = forIter;
+					base(execute);
+				}
+			}
+			runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | old_loop_runtimeFlags;
+			l = oldLex;
+			delete forCond;
+			delete forIter;
+			delete forBody;
+			if (loopCount<=0) {
+				root->trace();
+				TRACE("FOR Loop exceeded %d iterations at %s\n", TINYJS_LOOP_MAX_ITERATIONS, l->getPosition(l->tokenLastEnd).c_str());
+				throw new CScriptException("LOOP_ERROR");
+			}
 		}
 	} else if (l->tk==LEX_R_BREAK) {
 		l->match(LEX_R_BREAK);
-		if(runtimeFlags & RUNTIME_CANBREAK)
+		if(execute && runtimeFlags & RUNTIME_CANBREAK)
 		{
 			runtimeFlags |= RUNTIME_BREAK;
 			execute = false;
@@ -2384,7 +2456,7 @@ void CTinyJS::statement(bool &execute) {
 		l->match(';');
 	} else if (l->tk==LEX_R_CONTINUE) {
 		l->match(LEX_R_CONTINUE);
-		if(runtimeFlags & RUNTIME_CANCONTINUE)
+		if(execute && runtimeFlags & RUNTIME_CANCONTINUE)
 		{
 			runtimeFlags |= RUNTIME_CONTINUE;
 			execute = false;
@@ -2418,7 +2490,7 @@ void CTinyJS::statement(bool &execute) {
 		l->match(LEX_R_TRY);
 		bool old_execute = execute;
 		// save runtimeFlags
-		int old_runtimeFlags = runtimeFlags & RUNTIME_THROW_MASK;
+		int old_throw_runtimeFlags = runtimeFlags & RUNTIME_THROW_MASK;
 		// set runtimeFlags
 		runtimeFlags = (runtimeFlags & ~RUNTIME_THROW_MASK) | RUNTIME_CANTHROW;
 
@@ -2428,7 +2500,7 @@ void CTinyJS::statement(bool &execute) {
 		if(isThrow) execute = old_execute;
 
 		// restore runtimeFlags
-		runtimeFlags = (runtimeFlags & ~RUNTIME_THROW_MASK) | old_runtimeFlags;
+		runtimeFlags = (runtimeFlags & ~RUNTIME_THROW_MASK) | old_throw_runtimeFlags;
 
 		if(l->tk != LEX_R_FINALLY) // expect catch
 		{

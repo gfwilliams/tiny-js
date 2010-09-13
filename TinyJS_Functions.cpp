@@ -38,6 +38,18 @@
 #	endif
 #endif
 
+#ifdef __GNUC__
+#	define UNUSED(x) __attribute__((__unused__))
+#elif defined(_MSC_VER)
+#	ifndef UNUSED
+#		define UNUSED(x) x
+#		pragma warning( disable : 4100 ) /* unreferenced formal parameter */
+#	endif
+#else
+#	define UNUSED(x) x
+#endif
+
+
 using namespace std;
 // ----------------------------------------------- Actual Functions
 

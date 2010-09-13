@@ -239,7 +239,15 @@ void replace(string &str, char textFrom, const char *textTo) {
 		p = str.find(textFrom, p+sLen);
 	}
 }
+#ifdef __GNUC__
+string int2string(int intData) {
+	char buffer[32];
+	sprintf_s(buffer, sizeof(buffer), "%d", intData);
+	return buffer;
+}
+#else
 string &int2string(int intData, string &inString=string());
+#endif
 string &int2string(int intData, string &inString) {
 	char buffer[32];
 	sprintf_s(buffer, sizeof(buffer), "%d", intData);
@@ -918,7 +926,7 @@ bool CScriptVar::getBool() {
 
 double CScriptVar::getDouble() {
 	if (isDouble()) return doubleData;
-	if (isInt() || isBool()) intData;
+	if (isInt() || isBool()) return intData;
 //	if (isNull()) return 0.0;
 //	if (isUndefined()) return 0.0;
 	if (isString()) return strtod(data.c_str(),0);

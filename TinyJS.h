@@ -170,7 +170,7 @@ public:
 
 	void match(int expected_tk); ///< Lexical match wotsit
 	static std::string getTokenStr(int token); ///< Get the string representation of the given token
-	void reset(); ///< Reset this lex so we can start again
+	void reset(int toPos=0); ///< Reset this lex so we can start again
 
 	std::string getSubString(int pos); ///< Return a sub-string from the given position up until right now
 	CScriptLex *getSubLex(int lastPosition); ///< Return a sub-lexer from the given position up until right now

@@ -68,6 +68,9 @@ enum LEX_TYPES {
 	LEX_OREQUAL,
 	LEX_OROR,
 	LEX_XOREQUAL,
+	LEX_ASTERISKEQUAL,
+	LEX_SLASHEQUAL,
+	LEX_PERCENTEQUAL,
 	// reserved words
 #define LEX_R_LIST_START LEX_R_IF
 	LEX_R_IF,
@@ -75,6 +78,7 @@ enum LEX_TYPES {
 	LEX_R_DO,
 	LEX_R_WHILE,
 	LEX_R_FOR,
+	LEX_R_IN,
 	LEX_R_BREAK,
 	LEX_R_CONTINUE,
 	LEX_R_FUNCTION,
@@ -91,12 +95,16 @@ enum LEX_TYPES {
 	LEX_R_CATCH,
 	LEX_R_FINALLY,
 	LEX_R_THROW,
+	LEX_R_TYPEOF,
+	LEX_R_VOID,
+	LEX_R_DELETE,
+	LEX_R_INSTANCEOF,
 
 	LEX_R_LIST_END /* always the last entry */
 };
 
 enum SCRIPTVAR_FLAGS {
-	SCRIPTVAR_UNDEFINED	= 0,
+	SCRIPTVAR_UNDEFINED		= 0,
 	SCRIPTVAR_FUNCTION		= 1,
 	SCRIPTVAR_OBJECT			= 2,
 	SCRIPTVAR_ARRAY			= 4,
@@ -201,10 +209,9 @@ class CScriptVarLink
 {
 public:
 	std::string name;
-	CScriptVarLink *nextSibling;
-	CScriptVarLink *prevSibling;
 	CScriptVar *var;
 	CScriptVar *owned; // pointer to the owner CScriptVar
+	bool dontDelete;
 
 	CScriptVarLink(CScriptVar *var, const std::string &name = TINYJS_TEMP_NAME);
 	CScriptVarLink(const CScriptVarLink &link); ///< Copy constructor
@@ -236,8 +243,7 @@ public:
 	CScriptVarLink *findChildOrCreateByPath(const std::string &path); ///< Tries to find a child with the given path (separated by dots)
 	CScriptVarLink *addChild(const std::string &childName, CScriptVar *child=NULL);
 	CScriptVarLink *addChildNoDup(const std::string &childName, CScriptVar *child=NULL); ///< add a child overwriting any with the same name
-	void removeChild(CScriptVar *child);
-	void removeLink(CScriptVarLink *link); ///< Remove a specific link (this is faster than finding via a child)
+	bool removeLink(CScriptVarLink *&link); ///< Remove a specific link (this is faster than finding via a child)
 	void removeAllChildren();
 	CScriptVar *getArrayIndex(int idx); ///< The the value at an array index
 	void setArrayIndex(int idx, CScriptVar *value); ///< Set the value at an array index
@@ -249,6 +255,7 @@ public:
 	double getDouble();
 	const std::string &getString();
 	std::string getParsableString(); ///< get Data as a parsable javascript string
+	std::string getVarType(); ///< get Data as a parsable javascript string
 	void setInt(int num);
 	void setBool(bool val);
 	void setDouble(double val);
@@ -267,7 +274,7 @@ public:
 	bool isNative_ClassMemberFnc() { return (flags&SCRIPTVAR_NATIVE_MFNC)!=0; }
 	bool isUndefined() { return (flags & SCRIPTVAR_VARTYPEMASK) == SCRIPTVAR_UNDEFINED; }
 	bool isNull() { return (flags & SCRIPTVAR_NULL)!=0; }
-	bool isNaN() { return (flags&SCRIPTVAR_NAN)!=0; }
+	bool isNaN() { return (flags & SCRIPTVAR_NAN)!=0; }
 	bool isInfinity() { return (flags&SCRIPTVAR_INFINITY)!=0; }
 	bool isBasic() { return Childs.empty(); } ///< Is this *not* an array/object/etc
 
@@ -329,6 +336,28 @@ public:
 	void (native::*classFnc)(CScriptVar *v, void *userdata);
 };
 
+class CScriptVarSmartLink
+{
+public:
+	CScriptVarSmartLink ();
+	CScriptVarSmartLink (CScriptVarLink *Link);
+	explicit CScriptVarSmartLink (CScriptVar *Var);
+	~ CScriptVarSmartLink ();
+	// Copy
+	CScriptVarSmartLink (const CScriptVarSmartLink &Link);
+	CScriptVarSmartLink &operator = (const CScriptVarSmartLink &Link);
+	CScriptVarSmartLink &operator = (CScriptVarLink *Link);
+	CScriptVarSmartLink &operator = (CScriptVar *Var);
+	CScriptVarLink *operator ->() { return link; }
+	CScriptVarLink &operator *() { return *link; }
+	CScriptVarSmartLink &operator << (CScriptVarSmartLink &Link);
+	operator bool() { return link != 0; }
+	operator CScriptVarLink *() { return link; }
+	CScriptVarLink *&getLink() { return link; }; 
+private:
+	CScriptVarLink *link;
+};
+
 class CTinyJS {
 public:
 	CTinyJS();
@@ -382,7 +411,7 @@ public:
 	const std::string *getVariable(const std::string &path);
 
 	/// throws an Error
-	bool throwError(bool &execute, const std::string &message);
+	void throwError(bool &execute, const std::string &message, int pos=-1);
 
 	/// Send all variables to stdout
 	void trace();
@@ -395,20 +424,26 @@ private:
 	CScriptVar *stringClass; /// Built in string class
 	CScriptVar *objectClass; /// Built in object class
 	CScriptVar *arrayClass; /// Built in array class
-	CScriptVarLink *tempScope; /// is temporary used by the '.' and '[' operator NULL meens the root-scope
-	CScriptVarLink *exeption; /// containing the exeption var by (runtimeFlags&RUNTIME_THROW) == true; 
+	CScriptVar *tempScope; /// is temporary used by the '.' and '[' operator NULL meens the root-scope
+	CScriptVar *exeption; /// containing the exeption var by (runtimeFlags&RUNTIME_THROW) == true; 
+	void CheckRightHandVar(bool &execute, CScriptVarSmartLink &link, int pos=-1)
+	{
+		if(execute && link && !tempScope && !link->owned && link->name.length()>0)
+			throwError(execute, link->name + " is not defined", pos);
+	}
+
 	// parsing - in order of precedence
-	CScriptVarLink *factor(bool &execute);
-	CScriptVarLink *unary(bool &execute);
-	CScriptVarLink *term(bool &execute);
-	CScriptVarLink *expression(bool &execute);
-	CScriptVarLink *binary_shift(bool &execute);
-	CScriptVarLink *relation(bool &execute, int set=LEX_EQUAL, int set_n='<');
-	CScriptVarLink *logic_binary(bool &execute, int op='|', int op_n1='^', int op_n2='&');
-	CScriptVarLink *logic(bool &execute, int op=LEX_OROR, int op_n=LEX_ANDAND);
-	CScriptVarLink *condition(bool &execute);
-	CScriptVarLink *assignment(bool &execute);
-	CScriptVarLink *base(bool &execute);
+	CScriptVarSmartLink factor(bool &execute);
+	CScriptVarSmartLink unary(bool &execute);
+	CScriptVarSmartLink term(bool &execute);
+	CScriptVarSmartLink expression(bool &execute);
+	CScriptVarSmartLink binary_shift(bool &execute);
+	CScriptVarSmartLink relation(bool &execute, int set=LEX_EQUAL, int set_n='<');
+	CScriptVarSmartLink logic_binary(bool &execute, int op='|', int op_n1='^', int op_n2='&');
+	CScriptVarSmartLink logic(bool &execute, int op=LEX_OROR, int op_n=LEX_ANDAND);
+	CScriptVarSmartLink condition(bool &execute);
+	CScriptVarSmartLink assignment(bool &execute);
+	CScriptVarSmartLink base(bool &execute);
 	void block(bool &execute);
 	void statement(bool &execute);
 	// parsing utility functions

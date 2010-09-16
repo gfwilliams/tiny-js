@@ -132,11 +132,61 @@
 #	define ASSERT(X) assert(X)
 #endif
 /* Frees the given link IF it isn't owned by anything else */
-#define CLEAN(x) do{ CScriptVarLink *__v = x; if (__v && !__v->owned) { delete __v;} }while(0)
+//#define CLEAN(x) do{ CScriptVarLink *__v = x; if (__v && !__v->owned) { delete __v;} }while(0)
 /* Create a LINK to point to VAR and free the old link.
  * BUT this is more clever - it tries to keep the old link if it's not owned to save allocations */
-#define CREATE_LINK(LINK, VAR) do{ if (!LINK || LINK->owned) LINK = new CScriptVarLink(VAR); else {LINK->replaceWith(VAR);LINK->name=TINYJS_TEMP_NAME;} }while(0)
+//#define CREATE_LINK(LINK, VAR) do{ if (!LINK || LINK->owned) LINK = new CScriptVarLink(VAR); else {LINK->replaceWith(VAR);LINK->name=TINYJS_TEMP_NAME;} }while(0)
 
+// corresponds "CScriptVarLink *link=0;" and "CScriptVarLink *link=Link"
+inline CScriptVarSmartLink::CScriptVarSmartLink () : link(0){}
+inline CScriptVarSmartLink::CScriptVarSmartLink (CScriptVarLink *Link) : link(Link) {}
+
+// this constructor replace "CScriptVarLink *link=0 ; CREATE_LINK(link, Var);"
+inline CScriptVarSmartLink::CScriptVarSmartLink (CScriptVar *Var) {
+	*this = Var;
+}
+// this operator replace "CREATE_LINK(link, Var);"
+inline CScriptVarSmartLink &CScriptVarSmartLink::operator = (CScriptVar *Var) {
+	if (!link || link->owned) 
+		link = new CScriptVarLink(Var);
+	else {
+		link->replaceWith(Var);
+		link->name=TINYJS_TEMP_NAME;
+	} 
+	return *this;
+}
+
+// the deconstructor replace the macro CLEAN(x)
+inline CScriptVarSmartLink::~CScriptVarSmartLink () {
+	if(link && !link->owned) 
+		delete link; 
+}
+// the copy-stuff has a special thing - 
+// when copying a SmartLink to an other then the right hand side will lost your link
+inline CScriptVarSmartLink::CScriptVarSmartLink (const CScriptVarSmartLink &Link) {
+	*this = Link; 
+}
+inline CScriptVarSmartLink &CScriptVarSmartLink::operator = (const CScriptVarSmartLink &Link) { 
+	link = Link.link; 
+	((CScriptVarSmartLink &)Link).link = 0; // explicit cast to a non const ref
+	return *this;
+}
+
+// this operator corresponds "CLEAN(link); link = Link;"
+inline CScriptVarSmartLink &CScriptVarSmartLink::operator = (CScriptVarLink *Link) {
+	if(link && !link->owned) delete link; 
+	link = Link; 
+	return *this;
+}
+
+// this operator corresponds "link->replaceWith(Link->var)"
+inline CScriptVarSmartLink &CScriptVarSmartLink::operator <<(CScriptVarSmartLink &Link) {
+#if _DEBUG
+	ASSERT(link && Link.link);
+#endif
+	link->replaceWith(Link->var);
+	return *this;
+}
 
 using namespace std;
 
@@ -370,12 +420,17 @@ string CScriptLex::getTokenStr(int token) {
 		case LEX_OREQUAL : return "|=";
 		case LEX_OROR : return "||";
 		case LEX_XOREQUAL : return "^=";
+		case LEX_ASTERISKEQUAL : return "*=";
+		case LEX_SLASHEQUAL : return "/=";
+		case LEX_PERCENTEQUAL : return "%=";
+
 		// reserved words
 		case LEX_R_IF : return "if";
 		case LEX_R_ELSE : return "else";
 		case LEX_R_DO : return "do";
 		case LEX_R_WHILE : return "while";
 		case LEX_R_FOR : return "for";
+		case LEX_R_IN: return "in";
 		case LEX_R_BREAK : return "break";
 		case LEX_R_CONTINUE : return "continue";
 		case LEX_R_FUNCTION : return "function";
@@ -392,6 +447,10 @@ string CScriptLex::getTokenStr(int token) {
 		case LEX_R_CATCH : return "catch";
 		case LEX_R_FINALLY : return "finally";
 		case LEX_R_THROW : return "throw";
+		case LEX_R_TYPEOF : return "typeof";
+		case LEX_R_VOID : return "void";
+		case LEX_R_DELETE : return "delete";
+		case LEX_R_INSTANCEOF : return "instanceof";
 	}
 
 	ostringstream msg;
@@ -441,6 +500,7 @@ void CScriptLex::getNextToken() {
 		else if (tkStr=="do") tk = LEX_R_DO;
 		else if (tkStr=="while") tk = LEX_R_WHILE;
 		else if (tkStr=="for") tk = LEX_R_FOR;
+		else if (tkStr=="in") tk = LEX_R_IN;
 		else if (tkStr=="break") tk = LEX_R_BREAK;
 		else if (tkStr=="continue") tk = LEX_R_CONTINUE;
 		else if (tkStr=="function") tk = LEX_R_FUNCTION;
@@ -457,6 +517,10 @@ void CScriptLex::getNextToken() {
 		else if (tkStr=="catch") tk = LEX_R_CATCH;
 		else if (tkStr=="finally") tk = LEX_R_FINALLY;
 		else if (tkStr=="throw") tk = LEX_R_THROW;
+		else if (tkStr=="typeof") tk = LEX_R_TYPEOF;
+		else if (tkStr=="void") tk = LEX_R_VOID;
+		else if (tkStr=="delete") tk = LEX_R_DELETE;
+		else if (tkStr=="instanceof") tk = LEX_R_INSTANCEOF;
 	} else if (isNumeric(currCh) || (currCh=='.' && isNumeric(nextCh))) { // Numbers
 		if(currCh=='.') tkStr+='0';
 		bool isHex = false;
@@ -544,52 +608,73 @@ void CScriptLex::getNextToken() {
 				tk = LEX_NTYPEEQUAL;
 				getNextCh();
 			}
-		} else if (tk=='<' && currCh=='=') {
-			tk = LEX_LEQUAL;
-			getNextCh();
-		} else if (tk=='<' && currCh=='<') {
-			tk = LEX_LSHIFT;
-			getNextCh();
-			if (currCh=='=') { // <<=
-				tk = LEX_LSHIFTEQUAL;
+		} else if (tk=='<') {
+			if (currCh=='=') {	// <=
+				tk = LEX_LEQUAL;
+				getNextCh();
+			} else if (currCh=='<') {	// <<
+				tk = LEX_LSHIFT;
+				getNextCh();
+				if (currCh=='=') { // <<=
+					tk = LEX_LSHIFTEQUAL;
+					getNextCh();
+				}
+			}
+		} else if (tk=='>') {
+			if (currCh=='=') {	// >=
+				tk = LEX_GEQUAL;
+				getNextCh();
+			} else if (currCh=='>') {	// >>
+				tk = LEX_RSHIFT;
+				getNextCh();
+				if (currCh=='=') { // >>=
+					tk = LEX_RSHIFTEQUAL;
+					getNextCh();
+				}
+			}
+		}  else if (tk=='+') {
+			if (currCh=='=') {	// +=
+				tk = LEX_PLUSEQUAL;
+				getNextCh();
+			}  else if (currCh=='+') {	// ++
+				tk = LEX_PLUSPLUS;
 				getNextCh();
 			}
-		} else if (tk=='>' && currCh=='=') {
-			tk = LEX_GEQUAL;
-			getNextCh();
-		} else if (tk=='>' && currCh=='>') {
-			tk = LEX_RSHIFT;
-			getNextCh();
-			if (currCh=='=') { // <<=
-				tk = LEX_RSHIFTEQUAL;
+		}  else if (tk=='-') {
+			if (currCh=='=') {	// -=
+				tk = LEX_MINUSEQUAL;
+				getNextCh();
+			}  else if (currCh=='-') {	// --
+				tk = LEX_MINUSMINUS;
 				getNextCh();
 			}
-		}  else if (tk=='+' && currCh=='=') {
-			tk = LEX_PLUSEQUAL;
-			getNextCh();
-		}  else if (tk=='-' && currCh=='=') {
-			tk = LEX_MINUSEQUAL;
-			getNextCh();
-		}  else if (tk=='+' && currCh=='+') {
-			tk = LEX_PLUSPLUS;
-			getNextCh();
-		}  else if (tk=='-' && currCh=='-') {
-			tk = LEX_MINUSMINUS;
-			getNextCh();
-		} else if (tk=='&' && currCh=='=') {
-			tk = LEX_ANDEQUAL;
-			getNextCh();
-		} else if (tk=='&' && currCh=='&') {
-			tk = LEX_ANDAND;
-			getNextCh();
-		} else if (tk=='|' && currCh=='=') {
-			tk = LEX_OREQUAL;
-			getNextCh();
-		} else if (tk=='|' && currCh=='|') {
-			tk = LEX_OROR;
-			getNextCh();
+		} else if (tk=='&') {
+			if (currCh=='=') {			// &=
+				tk = LEX_ANDEQUAL;
+				getNextCh();
+			} else if (currCh=='&') {	// &&
+				tk = LEX_ANDAND;
+				getNextCh();
+			}
+		} else if (tk=='|') {
+			if (currCh=='=') {			// |=
+				tk = LEX_OREQUAL;
+				getNextCh();
+			} else if (currCh=='|') {	// ||
+				tk = LEX_OROR;
+				getNextCh();
+			}
 		} else if (tk=='^' && currCh=='=') {
 			tk = LEX_XOREQUAL;
+			getNextCh();
+		} else if (tk=='*' && currCh=='=') {
+			tk = LEX_ASTERISKEQUAL;
+			getNextCh();
+		} else if (tk=='/' && currCh=='=') {
+			tk = LEX_SLASHEQUAL;
+			getNextCh();
+		} else if (tk=='%' && currCh=='=') {
+			tk = LEX_PERCENTEQUAL;
 			getNextCh();
 		}
 	}
@@ -648,10 +733,9 @@ CScriptVarLink::CScriptVarLink(CScriptVar *var, const std::string &name) {
 	mark_allocated(this);
 #endif
 	this->name = name;
-	this->nextSibling = 0;
-	this->prevSibling = 0;
 	this->var = var->ref();
-	this->owned = NULL;
+	this->owned = 0;
+	this->dontDelete = false;
 }
 
 CScriptVarLink::CScriptVarLink(const CScriptVarLink &link) {
@@ -660,10 +744,9 @@ CScriptVarLink::CScriptVarLink(const CScriptVarLink &link) {
 	mark_allocated(this);
 #endif
 	this->name = link.name;
-	this->nextSibling = 0;
-	this->prevSibling = 0;
 	this->var = link.var->ref();
-	this->owned = NULL;
+	this->owned = 0;
+	this->dontDelete = false;
 }
 
 CScriptVarLink::~CScriptVarLink() {
@@ -842,24 +925,16 @@ CScriptVarLink *CScriptVar::addChildNoDup(const std::string &childName, CScriptV
 	return v;
 }
 
-void CScriptVar::removeChild(CScriptVar *child) {
-	for(SCRIPTVAR_CHILDS::iterator it = Childs.begin(); it != Childs.end(); ++it) {
-		if(it->second->var == child) {
-			removeLink(it->second);
-			break;
-		}
-	}
-	ASSERT(0);// removeChild - the child is not atached to this var 
-}
-
-void CScriptVar::removeLink(CScriptVarLink *link) {
-	if (!link) return;
+bool CScriptVar::removeLink(CScriptVarLink *&link) {
+	if (!link) return false;
 #ifdef _DEBUG
 	if(findChild(link->name) != link)
 		ASSERT(0); // removeLink - the link is not atached to this var 
 #endif
 	Childs.erase(link->name);
 	delete link;
+	link = 0;
+	return true;
 }
 
 void CScriptVar::removeAllChildren() {
@@ -1223,6 +1298,19 @@ string CScriptVar::getParsableString() {
 		return "null";
   return "undefined";
 }
+string CScriptVar::getVarType() {
+	if(this->isBool())
+		return "boolean";
+	else if(this->isFunction())
+		return "function";
+	else if(this->isNumeric() || this->isInfinity() || this->isNaN())
+		return "number";
+	else if(this->isString())
+		return "string";
+	else if(this->isUndefined())
+		return "undefined";
+	return "object"; // Objcect / Array / null
+}
 
 void CScriptVar::getJSON(ostringstream &destination, const string linePrefix) {
 	if (isObject()) {
@@ -1319,14 +1407,14 @@ CTinyJS::~CTinyJS() {
 #endif
 }
 
-bool CTinyJS::throwError(bool &execute, const string &message) {
+void CTinyJS::throwError(bool &execute, const string &message, int pos /*=-1*/) {
 	if(execute && (runtimeFlags & RUNTIME_CANTHROW)) {
-		this->exeption = new CScriptVarLink(new CScriptVar(message));
+		exeption = (new CScriptVar(message))->ref();
 		runtimeFlags |= RUNTIME_THROW;
 		execute = false;
-		return true;
+		return;
 	}
-	return false;
+	throw new CScriptException(message, pos);
 }
 
 void CTinyJS::trace() {
@@ -1362,11 +1450,10 @@ CScriptVarLink CTinyJS::evaluateComplex(const string &code) {
 	l = new CScriptLex(code);
 	scopes.clear();
 	scopes.push_back(root);
-	CScriptVarLink *v = 0;
+	CScriptVarSmartLink v;
 	try {
 			bool execute = true;
 			do {
-				CLEAN(v);
 				v = base(execute);
 				if (l->tk!=LEX_EOF) l->match(';');
 			} while (l->tk!=LEX_EOF);
@@ -1384,7 +1471,6 @@ CScriptVarLink CTinyJS::evaluateComplex(const string &code) {
 
 	if (v) {
 			CScriptVarLink r = *v;
-			CLEAN(v);
 			return r;
 	}
 	// return undefined...
@@ -1457,8 +1543,9 @@ CScriptVarLink *CTinyJS::parseFunctionDefinition() {
   funcVar->var->data = l->getSubString(funcBegin);
   return funcVar;
 }
-
-CScriptVarLink *CTinyJS::factor(bool &execute) {
+// Precedence 2, Precedence 1 & literals
+CScriptVarSmartLink CTinyJS::factor(bool &execute) {
+	tempScope = 0;
 	if (l->tk==LEX_R_TRUE) {
 		l->match(LEX_R_TRUE);
 		return new CScriptVarLink(new CScriptVar(true));
@@ -1484,7 +1571,7 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 		return new CScriptVarLink(new CScriptVar(TINYJS_BLANK_DATA,SCRIPTVAR_NAN));
 	}
 	if (l->tk==LEX_ID || l->tk=='(') {
-		CScriptVarLink *a;
+		CScriptVarSmartLink a;
 		int op = l->tk;
 		if(l->tk=='(')
 		{
@@ -1507,17 +1594,11 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 			l->match(LEX_ID);
 		while (l->tk=='(' || l->tk=='.' || l->tk=='[') {
 			if(execute && a->var->isUndefined()) {
-				CLEAN(tempScope); tempScope=NULL;
-				string message = path + " is undefined";
-				if(!throwError(execute, message)) {
-					CLEAN(a);
-					throw new CScriptException(message, l->tokenEnd);
-				}
+				throwError(execute, path + " is undefined", l->tokenEnd);
 			}
 			if (l->tk=='(') { // ------------------------------------- Function Call
 				if (execute) {
 					if (!a->var->isFunction()) {
-						CLEAN(tempScope); tempScope=NULL;
 						string errorMsg = "Expecting '";
 						errorMsg = errorMsg + a->name + "' to be a function";
 						throw new CScriptException(errorMsg.c_str());
@@ -1534,12 +1615,11 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 					int parameters_idx = 0;
 					for(SCRIPTVAR_CHILDS::iterator it = a->var->Childs.begin(); it != a->var->Childs.end(); ++it) {
 						if (l->tk!=')') {
-							CScriptVarLink *value;
+							CScriptVarSmartLink value;
 							try {
 								value = assignment(execute);
 								path += value->var->getString();
 							} catch (CScriptException *e) {
-								CLEAN(tempScope); tempScope=NULL;
 								delete parameters;
 								delete functionRoot;
 								throw e;
@@ -1553,19 +1633,17 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 									functionRoot->addChild(it->first, parameters->addChild(int2string(parameters_idx++), value->var)->var);
 								}
 							}
-							CLEAN(value);
 						} else {
 							functionRoot->addChild(it->first, new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_UNDEFINED));
 						}
 						if (l->tk!=')') { l->match(','); path+=','; }
 					}
 					while(l->tk!=')') {
-						CScriptVarLink *value;
+						CScriptVarSmartLink value;
 						try {
 							value = assignment(execute);
 							path += value->var->getString();
 						} catch (CScriptException *e) {
-							CLEAN(tempScope); tempScope=NULL;
 							delete parameters;
 							delete functionRoot;
 							throw e;
@@ -1579,7 +1657,6 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 								parameters->addChild(int2string(parameters_idx++), value->var);
 							}
 						}
-						CLEAN(value);
 						if (l->tk!=')') { l->match(','); path+=','; }
 					}
 
@@ -1637,8 +1714,7 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 					// function, but not executing - just parse args and be done
 					l->match('(');
 					while (l->tk != ')') {
-						CScriptVarLink *value = base(execute);
-						CLEAN(value);
+						CScriptVarSmartLink value = base(execute);
 						if (l->tk!=')') l->match(',');
 					}
 					l->match(')');
@@ -1655,10 +1731,9 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 					l->match(LEX_ID);
 				} else {
 					l->match('[');
-					CScriptVarLink *index = expression(execute);
+					CScriptVarSmartLink index = expression(execute);
 					name = index->var->getString();
 					path += "["+name+"]";
-					CLEAN(index);
 					l->match(']');
 				}
 
@@ -1682,7 +1757,7 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 						parent = a->var;
 						a = child;
 					} else {
-						tempScope = a;
+						tempScope = a->var;
 						a = new CScriptVarLink(new CScriptVar(), name);
 					}
 				}
@@ -1712,9 +1787,8 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 			else l->match(LEX_ID);
 			l->match(':');
 			if (execute) {
-				CScriptVarLink *a = assignment(execute);
+				CScriptVarSmartLink a = assignment(execute);
 				contents->addChild(id, a->var);
-				CLEAN(a);
 			}
 			// no need to clean here, as it will definitely be used
 			if (l->tk != '}') l->match(',');
@@ -1730,9 +1804,8 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 		int idx = 0;
 		while (l->tk != ']') {
 			if (execute) {
-			CScriptVarLink *a = assignment(execute);
+			CScriptVarSmartLink a = assignment(execute);
 			contents->addChild(int2string(idx), a->var);
-			CLEAN(a);
 			}
 			// no need to clean here, as it will definitely be used
 			if (l->tk != ']') l->match(',');
@@ -1779,33 +1852,61 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
 	l->match(LEX_EOF);
 	return 0;
 }
-CScriptVarLink *CTinyJS::unary(bool &execute) {
-	CScriptVarLink *a;
+// R-L: Precedence 4 (TODO: add typeof, void, delete) & Precedence 3 
+CScriptVarSmartLink CTinyJS::unary(bool &execute) {
+	CScriptVarSmartLink a;
 	if (l->tk=='-') {
 		l->match('-');
 		a = unary(execute);
 		if (execute) {
+			CheckRightHandVar(execute, a);
 			CScriptVar zero(0);
-			CScriptVar *res = zero.mathsOp(a->var, '-');
-			CREATE_LINK(a, res);
+			a = zero.mathsOp(a->var, '-');
 		}
 	} else if (l->tk=='+') {
 		l->match('+');
 		a = unary(execute);
+		CheckRightHandVar(execute, a);
 	} else if (l->tk=='!') {
 		l->match('!'); // binary not
 		a = unary(execute);
 		if (execute) {
+			CheckRightHandVar(execute, a);
 			CScriptVar zero(0);
-			CScriptVar *res = a->var->mathsOp(&zero, LEX_EQUAL);
-			CREATE_LINK(a, res);
+			a = a->var->mathsOp(&zero, LEX_EQUAL);
 		}
 	} else if (l->tk=='~') {
 		l->match('~'); // binary neg
 		a = unary(execute);
 		if (execute) {
-			CScriptVar *res = a->var->mathsOp(NULL, '~');
-			CREATE_LINK(a, res);
+			CheckRightHandVar(execute, a);
+			a = a->var->mathsOp(NULL, '~');
+		}
+	} else if (l->tk==LEX_R_TYPEOF) {
+		l->match(LEX_R_TYPEOF); // void
+		a = unary(execute);
+		if (execute) {
+			// !!! no right-hand-check by delete
+			a = new CScriptVarLink(new CScriptVar(a->var->getVarType(),SCRIPTVAR_STRING));
+		}
+	} else if (l->tk==LEX_R_VOID) {
+		l->match(LEX_R_VOID); // void
+		a = unary(execute);
+		if (execute) {
+			CheckRightHandVar(execute, a);
+			a = new CScriptVarLink(new CScriptVar(TINYJS_BLANK_DATA,SCRIPTVAR_UNDEFINED));
+		}
+	} else if (l->tk==LEX_R_DELETE) {
+		l->match(LEX_R_DELETE); // delete
+		a = unary(execute);
+		if (execute) {
+			// !!! no right-hand-check by delete
+			if(a->owned && !a->dontDelete) {
+				a->owned->removeLink(a.getLink());	// removes the link from owner
+				a = new CScriptVarLink(new CScriptVar(true));
+			}
+			else
+				a = new CScriptVarLink(new CScriptVar(false));
 		}
 	} else if (l->tk==LEX_PLUSPLUS || l->tk==LEX_MINUSMINUS) {
 		int op = l->tk;
@@ -1818,13 +1919,12 @@ CScriptVarLink *CTinyJS::unary(bool &execute) {
 				CScriptVar *res = a->var->mathsOp(&one, op==LEX_PLUSPLUS ? '+' : '-');
 				// in-place add/subtract
 				a->replaceWith(res);
-				CREATE_LINK(a, res);
+				a = res;
 			}
 		}
-	} 
-	else
+	} else {
 		a = factor(execute);
-
+	}
 	// post increment/decrement
 	if (l->tk==LEX_PLUSPLUS || l->tk==LEX_MINUSMINUS) {
 		int op = l->tk;
@@ -1837,247 +1937,231 @@ CScriptVarLink *CTinyJS::unary(bool &execute) {
 				CScriptVar *res = a->var->ref();
 				CScriptVar *new_a = a->var->mathsOp(&one, op==LEX_PLUSPLUS ? '+' : '-');
 				a->replaceWith(new_a);
-				CREATE_LINK(a, res);
+				a = res;
 				res->unref();
 			}
-			else
-			{
-				ostringstream errorString;
-				errorString << "Post-" << (l->tk==LEX_PLUSPLUS ? "Increment" : "Decrement") << ": ";
-				if(a->name.length())
-					errorString << a->name << " is not defined";
-				else
-					errorString << "invalid " << (l->tk==LEX_PLUSPLUS ? "increment" : "decrement") << " operand";
-//				errorString << " at " << (l->getPosition(l->tokenStart-2));
-				throw new CScriptException(errorString.str());
+		}
+	}
+	return a;
+}
+
+// L->R: Precedence 5
+CScriptVarSmartLink CTinyJS::term(bool &execute) {
+	CScriptVarSmartLink a = unary(execute);
+	if (l->tk=='*' || l->tk=='/' || l->tk=='%') {
+		CheckRightHandVar(execute, a);
+		while (l->tk=='*' || l->tk=='/' || l->tk=='%') {
+			int op = l->tk;
+			l->match(l->tk);
+			CScriptVarSmartLink b = unary(execute); // L->R
+			if (execute) {
+				CheckRightHandVar(execute, b);
+				a = a->var->mathsOp(b->var, op);
 			}
 		}
 	}
-	
-	
 	return a;
 }
 
-CScriptVarLink *CTinyJS::term(bool &execute) {
-	CScriptVarLink *a = unary(execute);
-	while (l->tk=='*' || l->tk=='/' || l->tk=='%') {
-		int op = l->tk;
-		l->match(l->tk);
-		CScriptVarLink *b = unary(execute);
-		if (execute) {
-			CScriptVar *res = a->var->mathsOp(b->var, op);
-			CREATE_LINK(a, res);
+// L->R: Precedence 6
+CScriptVarSmartLink CTinyJS::expression(bool &execute) {
+	CScriptVarSmartLink a = term(execute);
+	if (l->tk=='+' || l->tk=='-') {
+		CheckRightHandVar(execute, a);
+		while (l->tk=='+' || l->tk=='-') {
+			int op = l->tk;
+			l->match(l->tk);
+			CScriptVarSmartLink b = term(execute); // L->R
+			if (execute) {
+				CheckRightHandVar(execute, b);
+				 // not in-place, so just replace
+				 a = a->var->mathsOp(b->var, op);
+			}
 		}
-		CLEAN(b);
 	}
 	return a;
 }
 
-CScriptVarLink *CTinyJS::expression(bool &execute) {
-	CScriptVarLink *a = term(execute);
-	while (l->tk=='+' || l->tk=='-') {
-		int op = l->tk;
-		l->match(l->tk);
-		CScriptVarLink *b = term(execute);
-		if (execute) {
-			 // not in-place, so just replace
-			 CScriptVar *res = a->var->mathsOp(b->var, op);
-			 CREATE_LINK(a, res);
+// L->R: Precedence 7 (TODO: add >>>)
+CScriptVarSmartLink CTinyJS::binary_shift(bool &execute) {
+	CScriptVarSmartLink a = expression(execute);
+	if (l->tk==LEX_LSHIFT || l->tk==LEX_RSHIFT) {
+		CheckRightHandVar(execute, a);
+		while (l->tk==LEX_LSHIFT || l->tk==LEX_RSHIFT) {
+			int op = l->tk;
+			l->match(l->tk);
+
+			CScriptVarSmartLink b = expression(execute); // L->R
+			if (execute) {
+				CheckRightHandVar(execute, a);
+				 // not in-place, so just replace
+				 a = a->var->mathsOp(b->var, op);
+			}
 		}
-		CLEAN(b);
 	}
 	return a;
 }
-
-CScriptVarLink *CTinyJS::binary_shift(bool &execute) {
-	CScriptVarLink *a = expression(execute);
-	while (l->tk==LEX_LSHIFT || l->tk==LEX_RSHIFT) {
-		int op = l->tk;
-		l->match(l->tk);
-
-		CScriptVarLink *b = expression(execute);
-		if (execute) {
-			 // not in-place, so just replace
-			 CScriptVar *res = a->var->mathsOp(b->var, op);
-			 CREATE_LINK(a, res);
-		}
-		CLEAN(b);
-	}
-	return a;
-}
-
-CScriptVarLink *CTinyJS::relation(bool &execute, int set, int set_n) {
-	CScriptVarLink *a = set_n ? relation(execute, set_n, 0) : binary_shift(execute);
-//    CScriptVarLink *a = expression(execute);
-	CScriptVarLink *b;
-	while ((set==LEX_EQUAL && (l->tk==LEX_EQUAL || l->tk==LEX_NEQUAL || l->tk==LEX_TYPEEQUAL || l->tk==LEX_NTYPEEQUAL))
+// L->R: Precedence 9 & Precedence 8 (TODO: add instanceof and in)
+CScriptVarSmartLink CTinyJS::relation(bool &execute, int set, int set_n) {
+	CScriptVarSmartLink a = set_n ? relation(execute, set_n, 0) : binary_shift(execute);
+	if ((set==LEX_EQUAL && (l->tk==LEX_EQUAL || l->tk==LEX_NEQUAL || l->tk==LEX_TYPEEQUAL || l->tk==LEX_NTYPEEQUAL))
 				||	(set=='<' && (l->tk==LEX_LEQUAL || l->tk==LEX_GEQUAL || l->tk=='<' || l->tk=='>'))) {
-		int op = l->tk;
-		l->match(l->tk);
-		b = set_n ? relation(execute, set_n, 0) : binary_shift(execute);
-		if (execute) {
-			CScriptVar *res = a->var->mathsOp(b->var, op);
-			CREATE_LINK(a,res);
-		}
-		CLEAN(b);
-	}
-	return a;
-}
-
-CScriptVarLink *CTinyJS::logic_binary(bool &execute, int op, int op_n1, int op_n2) {
-	CScriptVarLink *a = op_n1 ? logic_binary(execute, op_n1, op_n2, 0) : relation(execute);
-	CScriptVarLink *b;
-	while (l->tk==op) {
-		l->match(l->tk);
-		b = op_n1 ? logic_binary(execute, op_n1, op_n2, 0) : relation(execute);
-		if (execute) {
-			CScriptVar *res = a->var->mathsOp(b->var, op);
-			CREATE_LINK(a, res);
-		}
-		CLEAN(b);
-	}
-	return a;
-}
-
-CScriptVarLink *CTinyJS::logic(bool &execute, int op, int op_n) {
-	CScriptVarLink *a = op_n ? logic(execute, op_n, 0) : logic_binary(execute);
-	CScriptVarLink *b;
-	while (l->tk==op) {
-		bool noexecute = false;
-		int bop = l->tk;
-		l->match(l->tk);
-		bool shortCircuit = false;
-		bool boolean = false;
-		// if we have short-circuit ops, then if we know the outcome
-		// we don't bother to execute the other op. Even if not
-		// we need to tell mathsOp it's an & or |
-		if (op==LEX_ANDAND) {
-			bop = '&';
-			shortCircuit = !a->var->getBool();
-			boolean = true;
-		} else if (op==LEX_OROR) {
-			bop = '|';
-			shortCircuit = a->var->getBool();
-			boolean = true;
-		}
-		b = op_n ? logic(shortCircuit ? noexecute : execute, op_n, 0) : logic_binary(shortCircuit ? noexecute : execute);
-		if (execute && !shortCircuit) {
-			if (boolean) {
-				CScriptVar *newa = new CScriptVar(a->var->getBool());
-				CScriptVar *newb = new CScriptVar(b->var->getBool());
-				CREATE_LINK(a, newa);
-				CREATE_LINK(b, newb);
+		CheckRightHandVar(execute, a);
+		while ((set==LEX_EQUAL && (l->tk==LEX_EQUAL || l->tk==LEX_NEQUAL || l->tk==LEX_TYPEEQUAL || l->tk==LEX_NTYPEEQUAL))
+					||	(set=='<' && (l->tk==LEX_LEQUAL || l->tk==LEX_GEQUAL || l->tk=='<' || l->tk=='>'))) {
+			int op = l->tk;
+			l->match(l->tk);
+			CScriptVarSmartLink b = set_n ? relation(execute, set_n, 0) : binary_shift(execute); // L->R
+			if (execute) {
+				CheckRightHandVar(execute, b);
+				a = a->var->mathsOp(b->var, op);
 			}
-			CScriptVar *res = a->var->mathsOp(b->var, bop);
-			CREATE_LINK(a, res);
 		}
-		CLEAN(b);
 	}
 	return a;
 }
-CScriptVarLink *CTinyJS::condition(bool &execute)
+
+// L->R: Precedence 12, Precedence 11 & Precedence 10
+CScriptVarSmartLink CTinyJS::logic_binary(bool &execute, int op, int op_n1, int op_n2) {
+	CScriptVarSmartLink a = op_n1 ? logic_binary(execute, op_n1, op_n2, 0) : relation(execute);
+	if (l->tk==op) {
+		CheckRightHandVar(execute, a);
+		while (l->tk==op) {
+			l->match(l->tk);
+			CScriptVarSmartLink b = op_n1 ? logic_binary(execute, op_n1, op_n2, 0) : relation(execute); // L->R
+			if (execute) {
+				CheckRightHandVar(execute, b);
+				a = a->var->mathsOp(b->var, op);
+			}
+		}
+	}
+	return a;
+}
+
+// L->R: Precedence 14 & Precedence 13
+CScriptVarSmartLink CTinyJS::logic(bool &execute, int op, int op_n) {
+	CScriptVarSmartLink a = op_n ? logic(execute, op_n, 0) : logic_binary(execute);
+	if (l->tk==op) {
+		CheckRightHandVar(execute, a);
+		while (l->tk==op) {
+			CheckRightHandVar(execute, a);
+			bool noexecute = false;
+			int bop = l->tk;
+			l->match(l->tk);
+			bool shortCircuit = false;
+			bool boolean = false;
+			// if we have short-circuit ops, then if we know the outcome
+			// we don't bother to execute the other op. Even if not
+			// we need to tell mathsOp it's an & or |
+			if (op==LEX_ANDAND) {
+				bop = '&';
+				shortCircuit = !a->var->getBool();
+				boolean = true;
+			} else if (op==LEX_OROR) {
+				bop = '|';
+				shortCircuit = a->var->getBool();
+				boolean = true;
+			}
+			CScriptVarSmartLink b = op_n ? logic(shortCircuit ? noexecute : execute, op_n, 0) : logic_binary(shortCircuit ? noexecute : execute); // L->R
+			CheckRightHandVar(execute, b);
+			if (execute && !shortCircuit) {
+				if (boolean) {
+					CheckRightHandVar(execute, b);
+					a = new CScriptVar(a->var->getBool());
+					b = new CScriptVar(b->var->getBool());
+				}
+				a = a->var->mathsOp(b->var, bop);
+			}
+		}
+	}
+	return a;
+}
+
+// R->L: Precedence 15
+CScriptVarSmartLink CTinyJS::condition(bool &execute)
 {
-	CScriptVarLink *a = logic(execute);
+	CScriptVarSmartLink a = logic(execute);
 	if (l->tk=='?')
 	{
+		CheckRightHandVar(execute, a);
 		l->match(l->tk);
 		bool cond = a->var->getBool();
-		CLEAN(a);
-		CScriptVarLink *b;
+		CScriptVarSmartLink b;
 		bool noexecute=false;
-		a = condition(cond ? execute : noexecute );
+		a = condition(cond ? execute : noexecute ); // R->L
+		CheckRightHandVar(execute, a);
 		l->match(':');
-		b = condition(cond ? noexecute : execute);
-		if(cond)
-			CLEAN(b);
-		else
-		{
-			CLEAN(a);
+		b = condition(cond ? noexecute : execute); // R-L
+		CheckRightHandVar(execute, b);
+		if(!cond)
 			a=b;
-		}
 	}
 	return a;
 }
 	
-CScriptVarLink *CTinyJS::assignment(bool &execute) {
-	CLEAN(tempScope); tempScope=NULL;
-	CScriptVarLink *lhs = condition(execute);
+// R->L: Precedence 16
+CScriptVarSmartLink CTinyJS::assignment(bool &execute) {
+	CScriptVarSmartLink lhs = condition(execute);
+	CScriptVar *lhs_tempScope = tempScope;
 	if (l->tk=='=' || l->tk==LEX_PLUSEQUAL || l->tk==LEX_MINUSEQUAL || 
+				l->tk==LEX_ASTERISKEQUAL || l->tk==LEX_SLASHEQUAL || l->tk==LEX_PERCENTEQUAL ||
 				l->tk==LEX_LSHIFTEQUAL || l->tk==LEX_RSHIFTEQUAL ||
-				l->tk==LEX_ANDEQUAL || l->tk==LEX_OREQUAL || l->tk==LEX_XOREQUAL) {
+				l->tk==LEX_ANDEQUAL || l->tk==LEX_XOREQUAL || l->tk==LEX_OREQUAL) {
 		int op = l->tk;
 		int pos = l->tokenEnd;
 		l->match(l->tk);
-		CScriptVarLink *rhs = assignment(execute);
+		CScriptVarSmartLink rhs = assignment(execute); // R->L
 		if (execute) {
 			if (!lhs->owned && lhs->name.length()==0) {
-				CLEAN(tempScope); tempScope=NULL;
-				CLEAN(lhs);
-				CLEAN(rhs);
 				throw new CScriptException("invalid assignment left-hand side", pos);
 			} else if (op != '=' && !lhs->owned) {
-				string message = lhs->name + " is not defined";
-				if(!throwError(execute, message)) {
-					CLEAN(tempScope); tempScope=NULL;
-					CLEAN(lhs);
-					CLEAN(rhs);
-					throw new CScriptException(message, pos);
-				}
+				throwError(execute, lhs->name + " is not defined", pos);
 			}
 			if (op=='=') {
 				if (!lhs->owned) {
 					CScriptVarLink *realLhs;
-					if(tempScope)
-						realLhs = tempScope->var->addChildNoDup(lhs->name, lhs->var);
+					if(lhs_tempScope)
+						realLhs = lhs_tempScope->addChildNoDup(lhs->name, lhs->var);
 					else
 						realLhs = root->addChildNoDup(lhs->name, lhs->var);
-					CLEAN(lhs);
 					lhs = realLhs;
 				}
-				lhs->replaceWith(rhs);
-			} else if (op==LEX_PLUSEQUAL) {
-				CScriptVar *res = lhs->var->mathsOp(rhs->var, '+');
-				lhs->replaceWith(res);
-			} else if (op==LEX_MINUSEQUAL) {
-				CScriptVar *res = lhs->var->mathsOp(rhs->var, '-');
-				lhs->replaceWith(res);
-			} else if (op==LEX_LSHIFTEQUAL) {
-				CScriptVar *res = lhs->var->mathsOp(rhs->var, LEX_LSHIFT);
-				lhs->replaceWith(res);
-			} else if (op==LEX_RSHIFTEQUAL) {
-				CScriptVar *res = lhs->var->mathsOp(rhs->var, LEX_RSHIFT);
-				lhs->replaceWith(res);
-			} else if (op==LEX_ANDEQUAL) {
-				CScriptVar *res = lhs->var->mathsOp(rhs->var, '&');
-				lhs->replaceWith(res);
-			} else if (op==LEX_OREQUAL) {
-				CScriptVar *res = lhs->var->mathsOp(rhs->var, '|');
-				lhs->replaceWith(res);
-			} else if (op==LEX_XOREQUAL) {
-				CScriptVar *res = lhs->var->mathsOp(rhs->var, '^');
-				lhs->replaceWith(res);
-			}
-		}
-		CLEAN(rhs);
-	}
-	else if(lhs->name.length()>0 && !lhs->owned && tempScope==NULL) {
-		string message = lhs->name + " is not defined";
-		if(!throwError(execute, message)) {
-			CLEAN(lhs);
-			throw new CScriptException(message);
+				lhs << rhs;
+			} else if (op==LEX_PLUSEQUAL)
+				lhs->replaceWith(lhs->var->mathsOp(rhs->var, '+'));
+			else if (op==LEX_MINUSEQUAL)
+				lhs->replaceWith(lhs->var->mathsOp(rhs->var, '-'));
+			else if (op==LEX_ASTERISKEQUAL)
+				lhs->replaceWith(lhs->var->mathsOp(rhs->var, '*'));
+			else if (op==LEX_SLASHEQUAL)
+				lhs->replaceWith(lhs->var->mathsOp(rhs->var, '/'));
+			else if (op==LEX_PERCENTEQUAL)
+				lhs->replaceWith(lhs->var->mathsOp(rhs->var, '%'));
+			else if (op==LEX_LSHIFTEQUAL)
+				lhs->replaceWith(lhs->var->mathsOp(rhs->var, LEX_LSHIFT));
+			else if (op==LEX_RSHIFTEQUAL)
+				lhs->replaceWith(lhs->var->mathsOp(rhs->var, LEX_RSHIFT));
+			else if (op==LEX_ANDEQUAL)
+				lhs->replaceWith(lhs->var->mathsOp(rhs->var, '&'));
+			else if (op==LEX_OREQUAL)
+				lhs->replaceWith(lhs->var->mathsOp(rhs->var, '|'));
+			else if (op==LEX_XOREQUAL)
+				lhs->replaceWith(lhs->var->mathsOp(rhs->var, '^'));
 		}
 	}
-	CLEAN(tempScope); tempScope=NULL;
+	else if(lhs->name.length()>0 && !lhs->owned && lhs_tempScope==NULL) {
+		throwError(execute, lhs->name + " is not defined");
+	}
 	return lhs;
 }
-CScriptVarLink *CTinyJS::base(bool &execute) {
-	CScriptVarLink *a;
+// L->R: Precedence 17
+CScriptVarSmartLink CTinyJS::base(bool &execute) {
+	CScriptVarSmartLink a;
 	for(;;)
 	{
-		a = assignment(execute);
+		a = assignment(execute); // L->R
 		if (l->tk == ',') {
 			l->match(',');
-			CLEAN(a);
 		} else
 			break;
 	}
@@ -2101,19 +2185,7 @@ void CTinyJS::block(bool &execute) {
 }
 
 void CTinyJS::statement(bool &execute) {
-	if (l->tk==LEX_ID ||
-			l->tk==LEX_INT ||
-			l->tk==LEX_FLOAT ||
-			l->tk==LEX_STR ||
-			l->tk==LEX_PLUSPLUS ||
-			l->tk==LEX_MINUSMINUS ||
-			l->tk=='+' ||
-			l->tk=='-' ||
-			l->tk=='(') {
-		/* Execute a simple statement that only contains basic arithmetic... */
-		CLEAN(base(execute));
-		l->match(';');
-	} else if (l->tk=='{') {
+	if (l->tk=='{') {
 		/* A block of code */
 		block(execute);
 	} else if (l->tk==';') {
@@ -2126,18 +2198,18 @@ void CTinyJS::statement(bool &execute) {
 		l->match(LEX_R_VAR);
 		for(;;)
 		{
-			CScriptVarLink *a = 0;
+			CScriptVarSmartLink a;
 			string var = l->tkStr;
 			l->match(LEX_ID);
-			if (execute)
+			if (execute) {
 				a = scopes.back()->findChildOrCreate(var);
-			// sort out initialiser
+				a->dontDelete = true;
+			}// sort out initialiser
 			if (l->tk == '=') {
 				l->match('=');
-				CScriptVarLink *var = assignment(execute);
+				CScriptVarSmartLink var = assignment(execute);
 				if (execute)
-					a->replaceWith(var);
-				CLEAN(var);
+					a << var;
 			}
 			if (l->tk == ',')
 				l->match(',');
@@ -2148,10 +2220,9 @@ void CTinyJS::statement(bool &execute) {
 	} else if (l->tk==LEX_R_IF) {
 		l->match(LEX_R_IF);
 		l->match('(');
-		CScriptVarLink *var = base(execute);
+		CScriptVarSmartLink var = base(execute);
 		l->match(')');
 		bool cond = execute && var->var->getBool();
-		CLEAN(var);
 		bool noexecute = false; // because we need to be abl;e to write to it
 		statement(cond ? execute : noexecute);
 		if (l->tk==LEX_R_ELSE) {
@@ -2205,9 +2276,8 @@ void CTinyJS::statement(bool &execute) {
 				whileCond->reset();
 				l = whileCond;
 			}
-			CScriptVarLink *cond = base(execute);
+			CScriptVarSmartLink cond = base(execute);
 			loopCond = execute && cond->var->getBool();
-			CLEAN(cond);
 			if(!whileCond)
 			{
 				whileCond = l->getSubLex(whileCondStart);
@@ -2233,9 +2303,8 @@ void CTinyJS::statement(bool &execute) {
 		l->match('(');
 		int whileCondStart = l->tokenStart;
 		bool noexecute = false;
-		CScriptVarLink *cond = base(execute);
+		CScriptVarSmartLink cond = base(execute);
 		bool loopCond = execute && cond->var->getBool();
-		CLEAN(cond);
 		CScriptLex *whileCond = l->getSubLex(whileCondStart);
 		l->match(')');
 		int whileBodyStart = l->tokenStart;
@@ -2265,7 +2334,6 @@ void CTinyJS::statement(bool &execute) {
 			l = whileCond;
 			cond = base(execute);
 			loopCond = execute && cond->var->getBool();
-			CLEAN(cond);
 			if (loopCond) {
 				whileBody->reset();
 				l = whileBody;
@@ -2302,27 +2370,17 @@ void CTinyJS::statement(bool &execute) {
 		l->match('(');
 		int pos=l->tokenStart;
 		bool for_in = false;
-		CScriptVarLink *for_var = NULL;
-		CScriptVarLink *for_var_tempScope = NULL;
-		CScriptVarLink *for_in_var = NULL;
+		CScriptVarSmartLink for_var;
+		CScriptVar *for_var_tempScope;
+		CScriptVarSmartLink for_in_var;
 		if(l->tk == LEX_ID) {
 			for_var = factor(execute);
 			for_var_tempScope = tempScope;
 
-//			l->match(LEX_ID);
-			if(l->tk == LEX_ID && l->tkStr == "in") {
+			if(l->tk == LEX_R_IN) {
 				for_in = true;
-				l->match(LEX_ID);
-				try {
-					for_in_var = factor(execute);
-				} catch (CScriptException *e) {
-					CLEAN(for_var);
-					throw e;
-				}
-				if (l->tk != ')') {
-					CLEAN(for_var);
-					CLEAN(for_in_var);
-				}
+				l->match(LEX_R_IN);
+				for_in_var = factor(execute);
 				l->match(')');
 			} else {
 				error_pos = l->tokenEnd;
@@ -2334,12 +2392,10 @@ void CTinyJS::statement(bool &execute) {
 		else if (for_in) {
 			if (execute && !for_var->owned) {
 				CScriptVarLink *real_for_var;
-				if(tempScope)
-					real_for_var = tempScope->var->addChildNoDup(for_var->name, for_var->var);
+				if(for_var_tempScope)
+					real_for_var = for_var_tempScope->addChildNoDup(for_var->name, for_var->var);
 				else
 					real_for_var = root->addChildNoDup(for_var->name, for_var->var);
-				CLEAN(tempScope); tempScope=NULL;
-				CLEAN(for_var);
 				for_var = real_for_var;
 			}
 			int forBodyStart = l->tokenStart;
@@ -2374,13 +2430,12 @@ void CTinyJS::statement(bool &execute) {
 			int forCondStart = l->tokenStart;
 			bool cond_empty = true;
 			bool loopCond = true;	// Empty Condition -->always true
-			CScriptVarLink *cond;
+			CScriptVarSmartLink cond;
 			if(l->tk != ';')
 			{
 				cond_empty = false;
 				cond = base(execute); // condition
 				loopCond = execute && cond->var->getBool();
-				CLEAN(cond);
 			}
 			CScriptLex *forCond = l->getSubLex(forCondStart);
 			l->match(';');
@@ -2427,7 +2482,6 @@ void CTinyJS::statement(bool &execute) {
 					l = forCond;
 					cond = base(execute);
 					loopCond = cond->var->getBool();
-					CLEAN(cond);
 				}
 				if (execute && loopCond) {
 					forBody->reset();
@@ -2481,28 +2535,27 @@ void CTinyJS::statement(bool &execute) {
 		l->match(';');
 	} else if (l->tk==LEX_R_RETURN) {
 		l->match(LEX_R_RETURN);
-		CScriptVarLink *result = 0;
+		CScriptVarSmartLink result;
 		if (l->tk != ';')
 			result = base(execute);
 		if (execute) {
-			CScriptVarLink *resultVar = scopes.back()->findChild(TINYJS_RETURN_VAR);
-		if (resultVar)
-			resultVar->replaceWith(result);
-		else
-			TRACE("RETURN statement, but not in a function.\n");
-			execute = false;
+				CScriptVarSmartLink resultVar = scopes.back()->findChild(TINYJS_RETURN_VAR);
+			if (resultVar)
+				resultVar << result;
+			else {
+				TRACE("RETURN statement, but not in a function.\n");
+				execute = false;
+			}
 		}
-		CLEAN(result);
 		l->match(';');
 	} else if (l->tk==LEX_R_FUNCTION) {
-		CScriptVarLink *funcVar = parseFunctionDefinition();
+		CScriptVarSmartLink funcVar = parseFunctionDefinition();
 		if (execute) {
 			if (funcVar->name == TINYJS_TEMP_NAME)
 				TRACE("Functions defined at statement-level are meant to have a name\n");
 			else
 				scopes.back()->addChildNoDup(funcVar->name, funcVar->var);
 		}
-		CLEAN(funcVar);
 	} else if (l->tk==LEX_R_TRY) {
 		l->match(LEX_R_TRY);
 		bool old_execute = execute;
@@ -2527,10 +2580,9 @@ void CTinyJS::statement(bool &execute) {
 			l->match(LEX_ID);
 			l->match(')');
 			if(isThrow) {
-	//			string exeption_var_name =
-				CScriptVar *catchScope = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FUNCTION);
-				catchScope->addChild(exeption_var_name, exeption->var);
-				CLEAN(exeption);
+				CScriptVar *catchScope = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT);
+				catchScope->addChild(exeption_var_name, exeption);
+				exeption->unref(); exeption = 0;
 				scopes.push_back(catchScope);
 
 				block(execute);
@@ -2544,29 +2596,30 @@ void CTinyJS::statement(bool &execute) {
 		}
 		if(l->tk == LEX_R_FINALLY) {
 			l->match(LEX_R_FINALLY);
-			bool finally_execute = isThrow ? true : execute;
-			block(finally_execute);
+			bool finally_execute = true;
+			block(isThrow ? finally_execute : execute);
 			;
 		}
 	} else if (l->tk==LEX_R_THROW) {
 		int tokenStart = l->tokenStart;
 		l->match(LEX_R_THROW);
-		CScriptVarLink *a = base(execute);
+		CScriptVarSmartLink a = base(execute);
 		if(execute) {
 			if(runtimeFlags & RUNTIME_CANTHROW) {
 				runtimeFlags |= RUNTIME_THROW;
 				execute = false;
-				exeption = new CScriptVarLink(a->var);
+				exeption = a->var->ref();
 			}
 			else
-			{
-				string exeptionStr = a->var->getString();
-				CLEAN(a);
-				throw new CScriptException("uncaught exeption: "+exeptionStr, tokenStart);
-			}
+				throw new CScriptException("uncaught exeption: "+a->var->getString(), tokenStart);
 		}
-		CLEAN(a);
-	} else l->match(LEX_EOF);
+	} else if(l->tk != LEX_EOF) {
+		/* Execute a simple statement that only contains basic arithmetic... */
+		base(execute);
+		l->match(';');
+	} else
+		l->match(LEX_EOF);
+
 }
 
 /// Get the value of the given variable, or return 0

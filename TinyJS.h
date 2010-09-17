@@ -99,6 +99,9 @@ enum LEX_TYPES {
 	LEX_R_VOID,
 	LEX_R_DELETE,
 	LEX_R_INSTANCEOF,
+	LEX_R_SWITCH,
+	LEX_R_CASE,
+	LEX_R_DEFAULT,
 
 	LEX_R_LIST_END /* always the last entry */
 };
@@ -144,10 +147,10 @@ enum RUNTIME_FLAGS {
 	RUNTIME_NEW					= 16,
 	RUNTIME_CANTHROW			= 32,
 	RUNTIME_THROW				= 64,
+	RUNTIME_BREAK_MASK		= RUNTIME_CANBREAK | RUNTIME_BREAK,
+	RUNTIME_LOOP_MASK			= RUNTIME_BREAK_MASK | RUNTIME_CANCONTINUE | RUNTIME_CONTINUE,
+	RUNTIME_THROW_MASK		= RUNTIME_CANTHROW | RUNTIME_THROW,
 };
-
-#define RUNTIME_LOOP_MASK (RUNTIME_CANBREAK | RUNTIME_BREAK | RUNTIME_CANCONTINUE | RUNTIME_CONTINUE)
-#define RUNTIME_THROW_MASK (RUNTIME_CANTHROW | RUNTIME_THROW)
 
 #define TINYJS_RETURN_VAR "return"
 #define TINYJS_PROTOTYPE_CLASS "prototype"
@@ -210,7 +213,8 @@ class CScriptVarLink
 public:
 	std::string name;
 	CScriptVar *var;
-	CScriptVar *owned; // pointer to the owner CScriptVar
+	bool owned;
+	CScriptVar *owner; // pointer to the owner CScriptVar
 	bool dontDelete;
 
 	CScriptVarLink(CScriptVar *var, const std::string &name = TINYJS_TEMP_NAME);
@@ -424,11 +428,10 @@ private:
 	CScriptVar *stringClass; /// Built in string class
 	CScriptVar *objectClass; /// Built in object class
 	CScriptVar *arrayClass; /// Built in array class
-	CScriptVar *tempScope; /// is temporary used by the '.' and '[' operator NULL meens the root-scope
 	CScriptVar *exeption; /// containing the exeption var by (runtimeFlags&RUNTIME_THROW) == true; 
 	void CheckRightHandVar(bool &execute, CScriptVarSmartLink &link, int pos=-1)
 	{
-		if(execute && link && !tempScope && !link->owned && link->name.length()>0)
+		if(execute && link && !link->owned && !link->owner && link->name.length()>0)
 			throwError(execute, link->name + " is not defined", pos);
 	}
 

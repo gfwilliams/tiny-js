@@ -213,10 +213,11 @@ class CScriptVarLink
 public:
 	std::string name;
 	CScriptVar *var;
-	bool owned;
 	CScriptVar *owner; // pointer to the owner CScriptVar
-	bool dontDelete;
-
+	struct {
+		bool owned			:1;
+		bool dontDelete	:1;
+	};
 	CScriptVarLink(CScriptVar *var, const std::string &name = TINYJS_TEMP_NAME);
 	CScriptVarLink(const CScriptVarLink &link); ///< Copy constructor
 	~CScriptVarLink();

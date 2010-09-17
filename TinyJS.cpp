@@ -2014,16 +2014,19 @@ CScriptVarSmartLink CTinyJS::binary_shift(bool &execute) {
 CScriptVarSmartLink CTinyJS::relation(bool &execute, int set, int set_n) {
 	CScriptVarSmartLink a = set_n ? relation(execute, set_n, 0) : binary_shift(execute);
 	if ((set==LEX_EQUAL && (l->tk==LEX_EQUAL || l->tk==LEX_NEQUAL || l->tk==LEX_TYPEEQUAL || l->tk==LEX_NTYPEEQUAL))
-				||	(set=='<' && (l->tk==LEX_LEQUAL || l->tk==LEX_GEQUAL || l->tk=='<' || l->tk=='>'))) {
+				||	(set=='<' && (l->tk==LEX_LEQUAL || l->tk==LEX_GEQUAL || l->tk=='<' || l->tk=='>' || l->tk == LEX_R_IN))) {
 		CheckRightHandVar(execute, a);
 		while ((set==LEX_EQUAL && (l->tk==LEX_EQUAL || l->tk==LEX_NEQUAL || l->tk==LEX_TYPEEQUAL || l->tk==LEX_NTYPEEQUAL))
-					||	(set=='<' && (l->tk==LEX_LEQUAL || l->tk==LEX_GEQUAL || l->tk=='<' || l->tk=='>'))) {
+					||	(set=='<' && (l->tk==LEX_LEQUAL || l->tk==LEX_GEQUAL || l->tk=='<' || l->tk=='>' || l->tk == LEX_R_IN))) {
 			int op = l->tk;
 			l->match(l->tk);
 			CScriptVarSmartLink b = set_n ? relation(execute, set_n, 0) : binary_shift(execute); // L->R
 			if (execute) {
 				CheckRightHandVar(execute, b);
-				a = a->var->mathsOp(b->var, op);
+				if(op == LEX_R_IN) {
+					a = new CScriptVarLink(new CScriptVar( b->var->findChild(a->var->getString())!= 0 ));
+				} else
+					a = a->var->mathsOp(b->var, op);
 			}
 		}
 	}
@@ -2562,7 +2565,7 @@ void CTinyJS::statement(bool &execute) {
 			if (funcVar->name == TINYJS_TEMP_NAME)
 				throw new CScriptException("Functions defined at statement-level are meant to have a name.");
 			else
-				scopes.back()->addChildNoDup(funcVar->name, funcVar->var);
+				scopes.back()->addChildNoDup(funcVar->name, funcVar->var)->dontDelete = true;
 		}
 	} else if (l->tk==LEX_R_TRY) {
 		l->match(LEX_R_TRY);
@@ -2701,12 +2704,10 @@ const string *CTinyJS::getVariable(const string &path) {
 
 /// Finds a child, looking recursively up the scopes
 CScriptVarLink *CTinyJS::findInScopes(const std::string &childName) {
-	for (int s=scopes.size()-1;s>=0;s--) {
-		CScriptVarLink *v = scopes[s]->findChild(childName);
-		if (v) return v;
-	}
-	return NULL;
-
+	CScriptVarLink *v = scopes.back()->findChild(childName);
+	if(!v && scopes.front() != scopes.back())
+		v = scopes.front()->findChild(childName);
+	return v;
 }
 
 /// Look up in any parent classes of the given object

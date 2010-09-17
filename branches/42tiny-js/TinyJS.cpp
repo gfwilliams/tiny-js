@@ -451,6 +451,9 @@ string CScriptLex::getTokenStr(int token) {
 		case LEX_R_VOID : return "void";
 		case LEX_R_DELETE : return "delete";
 		case LEX_R_INSTANCEOF : return "instanceof";
+		case LEX_R_SWITCH : return "switch";
+		case LEX_R_CASE : return "case";
+		case LEX_R_DEFAULT : return "default";
 	}
 
 	ostringstream msg;
@@ -521,6 +524,9 @@ void CScriptLex::getNextToken() {
 		else if (tkStr=="void") tk = LEX_R_VOID;
 		else if (tkStr=="delete") tk = LEX_R_DELETE;
 		else if (tkStr=="instanceof") tk = LEX_R_INSTANCEOF;
+		else if (tkStr=="switch") tk = LEX_R_SWITCH;
+		else if (tkStr=="case") tk = LEX_R_CASE;
+		else if (tkStr=="default") tk = LEX_R_DEFAULT;
 	} else if (isNumeric(currCh) || (currCh=='.' && isNumeric(nextCh))) { // Numbers
 		if(currCh=='.') tkStr+='0';
 		bool isHex = false;
@@ -734,7 +740,8 @@ CScriptVarLink::CScriptVarLink(CScriptVar *var, const std::string &name) {
 #endif
 	this->name = name;
 	this->var = var->ref();
-	this->owned = 0;
+	this->owned = false;
+	this->owner = 0;
 	this->dontDelete = false;
 }
 
@@ -745,7 +752,8 @@ CScriptVarLink::CScriptVarLink(const CScriptVarLink &link) {
 #endif
 	this->name = link.name;
 	this->var = link.var->ref();
-	this->owned = 0;
+	this->owned = false;
+	this->owner = 0;
 	this->dontDelete = false;
 }
 
@@ -905,7 +913,8 @@ CScriptVarLink *CScriptVar::addChild(const std::string &childName, CScriptVar *c
 		ASSERT(0); // addCild - the child exists 
 #endif
 	CScriptVarLink *link = new CScriptVarLink(child, childName);
-	link->owned = this;
+	link->owned = true;
+	link->owner = this;
 	return Childs[childName] = link;
 }
 CScriptVarLink *CScriptVar::addChildNoDup(const std::string &childName, CScriptVar *child) {
@@ -915,10 +924,11 @@ CScriptVarLink *CScriptVar::addChildNoDup(const std::string &childName, CScriptV
 
 	CScriptVarLink *v = findChild(childName);
 	if (v) {
-			v->replaceWith(child);
+		v->replaceWith(child);
 	} else {
-			CScriptVarLink *link = new CScriptVarLink(child, childName);
-			link->owned = this;
+		CScriptVarLink *link = new CScriptVarLink(child, childName);
+		link->owned = true;
+		link->owner = this;
 		v = Childs[childName] = link;
 	}
 
@@ -1389,7 +1399,6 @@ CTinyJS::CTinyJS() {
 	root->addChild("String", stringClass);
 	root->addChild("Array", arrayClass);
 	root->addChild("Object", objectClass);
-	tempScope = NULL;
 	exeption = NULL;
 	addNative("function eval(jsCode)", this, &CTinyJS::scEval); // execute the given string and return the resul
 }
@@ -1545,7 +1554,6 @@ CScriptVarLink *CTinyJS::parseFunctionDefinition() {
 }
 // Precedence 2, Precedence 1 & literals
 CScriptVarSmartLink CTinyJS::factor(bool &execute) {
-	tempScope = 0;
 	if (l->tk==LEX_R_TRUE) {
 		l->match(LEX_R_TRUE);
 		return new CScriptVarLink(new CScriptVar(true));
@@ -1757,8 +1765,9 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 						parent = a->var;
 						a = child;
 					} else {
-						tempScope = a->var;
+						CScriptVar *owner = a->var;
 						a = new CScriptVarLink(new CScriptVar(), name);
+						a->owner = owner;
 					}
 				}
 			} else ASSERT(0);
@@ -1902,7 +1911,7 @@ CScriptVarSmartLink CTinyJS::unary(bool &execute) {
 		if (execute) {
 			// !!! no right-hand-check by delete
 			if(a->owned && !a->dontDelete) {
-				a->owned->removeLink(a.getLink());	// removes the link from owner
+				a->owner->removeLink(a.getLink());	// removes the link from owner
 				a = new CScriptVarLink(new CScriptVar(true));
 			}
 			else
@@ -2102,7 +2111,6 @@ CScriptVarSmartLink CTinyJS::condition(bool &execute)
 // R->L: Precedence 16
 CScriptVarSmartLink CTinyJS::assignment(bool &execute) {
 	CScriptVarSmartLink lhs = condition(execute);
-	CScriptVar *lhs_tempScope = tempScope;
 	if (l->tk=='=' || l->tk==LEX_PLUSEQUAL || l->tk==LEX_MINUSEQUAL || 
 				l->tk==LEX_ASTERISKEQUAL || l->tk==LEX_SLASHEQUAL || l->tk==LEX_PERCENTEQUAL ||
 				l->tk==LEX_LSHIFTEQUAL || l->tk==LEX_RSHIFTEQUAL ||
@@ -2120,8 +2128,8 @@ CScriptVarSmartLink CTinyJS::assignment(bool &execute) {
 			if (op=='=') {
 				if (!lhs->owned) {
 					CScriptVarLink *realLhs;
-					if(lhs_tempScope)
-						realLhs = lhs_tempScope->addChildNoDup(lhs->name, lhs->var);
+					if(lhs->owner)
+						realLhs = lhs->owner->addChildNoDup(lhs->name, lhs->var);
 					else
 						realLhs = root->addChildNoDup(lhs->name, lhs->var);
 					lhs = realLhs;
@@ -2149,7 +2157,7 @@ CScriptVarSmartLink CTinyJS::assignment(bool &execute) {
 				lhs->replaceWith(lhs->var->mathsOp(rhs->var, '^'));
 		}
 	}
-	else if(lhs->name.length()>0 && !lhs->owned && lhs_tempScope==NULL) {
+	else if(lhs->name.length()>0 && !lhs->owned && !lhs->owner) {
 		throwError(execute, lhs->name + " is not defined");
 	}
 	return lhs;
@@ -2168,7 +2176,6 @@ CScriptVarSmartLink CTinyJS::base(bool &execute) {
 	return a;
 }
 void CTinyJS::block(bool &execute) {
-	// TODO: fast skip of blocks
 	l->match('{');
 	if (execute) {
 		while (l->tk && l->tk!='}')
@@ -2371,11 +2378,9 @@ void CTinyJS::statement(bool &execute) {
 		int pos=l->tokenStart;
 		bool for_in = false;
 		CScriptVarSmartLink for_var;
-		CScriptVar *for_var_tempScope;
 		CScriptVarSmartLink for_in_var;
 		if(l->tk == LEX_ID) {
 			for_var = factor(execute);
-			for_var_tempScope = tempScope;
 
 			if(l->tk == LEX_R_IN) {
 				for_in = true;
@@ -2392,8 +2397,8 @@ void CTinyJS::statement(bool &execute) {
 		else if (for_in) {
 			if (execute && !for_var->owned) {
 				CScriptVarLink *real_for_var;
-				if(for_var_tempScope)
-					real_for_var = for_var_tempScope->addChildNoDup(for_var->name, for_var->var);
+				if(for_var->owner)
+					real_for_var = for_var->owner->addChildNoDup(for_var->name, for_var->var);
 				else
 					real_for_var = root->addChildNoDup(for_var->name, for_var->var);
 				for_var = real_for_var;
@@ -2524,6 +2529,8 @@ void CTinyJS::statement(bool &execute) {
 			runtimeFlags |= RUNTIME_BREAK;
 			execute = false;
 		}
+		else
+			throw new CScriptException("'break' must be inside loop or switch");
 		l->match(';');
 	} else if (l->tk==LEX_R_CONTINUE) {
 		l->match(LEX_R_CONTINUE);
@@ -2532,6 +2539,8 @@ void CTinyJS::statement(bool &execute) {
 			runtimeFlags |= RUNTIME_CONTINUE;
 			execute = false;
 		}
+		else
+			throw new CScriptException("'continue' must be inside loop");
 		l->match(';');
 	} else if (l->tk==LEX_R_RETURN) {
 		l->match(LEX_R_RETURN);
@@ -2542,17 +2551,16 @@ void CTinyJS::statement(bool &execute) {
 				CScriptVarSmartLink resultVar = scopes.back()->findChild(TINYJS_RETURN_VAR);
 			if (resultVar)
 				resultVar << result;
-			else {
-				TRACE("RETURN statement, but not in a function.\n");
-				execute = false;
-			}
+			else 
+				throw new CScriptException("'return' statement, but not in a function.");
+			execute = false;
 		}
 		l->match(';');
 	} else if (l->tk==LEX_R_FUNCTION) {
 		CScriptVarSmartLink funcVar = parseFunctionDefinition();
 		if (execute) {
 			if (funcVar->name == TINYJS_TEMP_NAME)
-				TRACE("Functions defined at statement-level are meant to have a name\n");
+				throw new CScriptException("Functions defined at statement-level are meant to have a name.");
 			else
 				scopes.back()->addChildNoDup(funcVar->name, funcVar->var);
 		}
@@ -2613,6 +2621,53 @@ void CTinyJS::statement(bool &execute) {
 			else
 				throw new CScriptException("uncaught exeption: "+a->var->getString(), tokenStart);
 		}
+	} else if (l->tk==LEX_R_SWITCH) {
+		l->match(LEX_R_SWITCH);
+		l->match('(');
+		CScriptVarSmartLink SwitchValue = base(execute);
+		l->match(')');
+		if(execute) {
+			// save runtimeFlags
+			int old_switch_runtimeFlags = runtimeFlags & RUNTIME_BREAK_MASK;
+			// set runtimeFlags
+			runtimeFlags = (runtimeFlags & ~RUNTIME_BREAK_MASK) | RUNTIME_CANBREAK;
+			bool noexecute = false;
+			bool old_execute = execute = false;
+			l->match('{');
+			if(l->tk == LEX_R_CASE || l->tk == LEX_R_DEFAULT || l->tk == '}') {
+
+				while (l->tk && l->tk!='}') {
+					if(l->tk == LEX_R_CASE) {
+						l->match(LEX_R_CASE);
+						if(execute) {
+							base(noexecute);
+						} else {
+							if(old_execute == execute)
+								old_execute = execute = true;
+							CScriptVarSmartLink CaseValue = base(execute);
+							if(execute) {
+								CaseValue = CaseValue->var->mathsOp(SwitchValue->var, LEX_EQUAL);
+								old_execute = execute = CaseValue->var->getBool();
+							}
+						}
+						l->match(':');
+					} else if(l->tk == LEX_R_DEFAULT) {
+						l->match(LEX_R_DEFAULT);
+						l->match(':');
+						if(!old_execute && !execute )
+							old_execute = execute = true;
+					}
+					statement(execute);
+				}
+				l->match('}');
+				if(runtimeFlags & RUNTIME_BREAK)
+					execute = true;
+				// restore runtimeFlags
+				runtimeFlags = (runtimeFlags & ~RUNTIME_BREAK_MASK) | old_switch_runtimeFlags;
+			} else
+				throw new CScriptException("invalid switch statement");
+		} else
+			block(execute);
 	} else if(l->tk != LEX_EOF) {
 		/* Execute a simple statement that only contains basic arithmetic... */
 		base(execute);

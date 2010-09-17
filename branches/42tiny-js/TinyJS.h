@@ -140,13 +140,14 @@ enum SCRIPTVAR_FLAGS {
 									  SCRIPTVAR_NATIVE_MFNC,
 };
 enum RUNTIME_FLAGS {
-	RUNTIME_CANBREAK			= 1,
-	RUNTIME_BREAK				= 2,
-	RUNTIME_CANCONTINUE		= 4,
-	RUNTIME_CONTINUE			= 8,
-	RUNTIME_NEW					= 16,
-	RUNTIME_CANTHROW			= 32,
-	RUNTIME_THROW				= 64,
+	RUNTIME_RETURN				= 1<<0,
+	RUNTIME_CANBREAK			= 1<<1,
+	RUNTIME_BREAK				= 1<<2,
+	RUNTIME_CANCONTINUE		= 1<<3,
+	RUNTIME_CONTINUE			= 1<<4,
+	RUNTIME_NEW					= 1<<5,
+	RUNTIME_CANTHROW			= 1<<6,
+	RUNTIME_THROW				= 1<<7,
 	RUNTIME_BREAK_MASK		= RUNTIME_CANBREAK | RUNTIME_BREAK,
 	RUNTIME_LOOP_MASK			= RUNTIME_BREAK_MASK | RUNTIME_CANCONTINUE | RUNTIME_CONTINUE,
 	RUNTIME_THROW_MASK		= RUNTIME_CANTHROW | RUNTIME_THROW,
@@ -415,9 +416,6 @@ public:
 	/// Get the value of the given variable, or return 0
 	const std::string *getVariable(const std::string &path);
 
-	/// throws an Error
-	void throwError(bool &execute, const std::string &message, int pos=-1);
-
 	/// Send all variables to stdout
 	void trace();
 
@@ -449,7 +447,7 @@ private:
 	CScriptVarSmartLink assignment(bool &execute);
 	CScriptVarSmartLink base(bool &execute);
 	void block(bool &execute);
-	void statement(bool &execute);
+	CScriptVarSmartLink statement(bool &execute);
 	// parsing utility functions
 	CScriptVarLink *parseFunctionDefinition();
 	void parseFunctionArguments(CScriptVar *funcVar);
@@ -458,7 +456,11 @@ private:
 	/// Look up in any parent classes of the given object
 	CScriptVarLink *findInParentClasses(CScriptVar *object, const std::string &name);
 	CScriptVar *addNative(const std::string &funcDesc);
-public: // native Functions
+
+	/// throws an Error
+	void throwError(bool &execute, const std::string &message, int pos=-1);
+
+	/// native Functions
 	void scEval(CScriptVar *c, void *data);
 
 };

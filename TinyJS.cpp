@@ -380,6 +380,7 @@ void CScriptLex::reset(int toPos) {
 }
 
 void CScriptLex::match(int expected_tk) {
+	if (expected_tk==';' && tk==LEX_EOF) return; // ignore last missing ';'
 	if (tk!=expected_tk) {
 			ostringstream errorString;
 			errorString << "Got " << getTokenStr(tk) << " expected " << getTokenStr(expected_tk)
@@ -1392,6 +1393,7 @@ CTinyJS::CTinyJS() {
 	l = NULL;
 	runtimeFlags = 0;
 	root = (new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT))->ref();
+	scopes.push_back(root);
 	// Add built-in classes
 	stringClass = (new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT))->ref();
 	arrayClass = (new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT))->ref();
@@ -1431,56 +1433,35 @@ void CTinyJS::trace() {
 }
 
 void CTinyJS::execute(const string &code) {
-	CScriptLex *oldLex = l;
-	vector<CScriptVar*> oldScopes = scopes;
-	l = new CScriptLex(code);
-	scopes.clear();
-	scopes.push_back(root);
-	try {
-			bool execute = true;
-			while (l->tk) statement(execute);
-	} catch (CScriptException *e) {
-			ostringstream msg;
-			msg << "Error " << e->text << " at " << l->getPosition(e->pos);
-			delete e;
-			delete l;
-			l = oldLex;
-			throw new CScriptException(msg.str());
-	}
-	delete l;
-	l = oldLex;
-	scopes = oldScopes;
+	evaluateComplex(code);
 }
 
 CScriptVarLink CTinyJS::evaluateComplex(const string &code) {
 	CScriptLex *oldLex = l;
-	vector<CScriptVar*> oldScopes = scopes;
 
 	l = new CScriptLex(code);
-	scopes.clear();
-	scopes.push_back(root);
 	CScriptVarSmartLink v;
 	try {
-			bool execute = true;
-			do {
-				v = base(execute);
-				if (l->tk!=LEX_EOF) l->match(';');
-			} while (l->tk!=LEX_EOF);
+		bool execute = true;
+		do {
+			v = statement(execute);
+			while (l->tk==';') l->match(';'); // skip empty statements
+		} while (l->tk!=LEX_EOF);
 	} catch (CScriptException *e) {
-			ostringstream msg;
-			msg << "Error " << e->text << " at " << l->getPosition(e->pos);
-			delete e;
-			delete l;
-			l = oldLex;
-			throw new CScriptException(msg.str());
+		runtimeFlags = 0; // clean up
+		ostringstream msg;
+		msg << "Error " << e->text << " at " << l->getPosition(e->pos);
+		delete e;
+		delete l;
+		l = oldLex;
+		throw new CScriptException(msg.str());
 	}
 	delete l;
 	l = oldLex;
-	scopes = oldScopes;
 
 	if (v) {
-			CScriptVarLink r = *v;
-			return r;
+		CScriptVarLink r = *v;
+		return r;
 	}
 	// return undefined...
 	return CScriptVarLink(new CScriptVar());
@@ -1491,13 +1472,13 @@ string CTinyJS::evaluate(const string &code) {
 }
 
 void CTinyJS::parseFunctionArguments(CScriptVar *funcVar) {
-  l->match('(');
-  while (l->tk!=')') {
+	l->match('(');
+	while (l->tk!=')') {
 		funcVar->addChildNoDup(l->tkStr);
 		l->match(LEX_ID);
 		if (l->tk!=')') l->match(',');
-  }
-  l->match(')');
+	}
+	l->match(')');
 }
 void CTinyJS::addNative(const string &funcDesc, JSCallback ptr, void *userdata) {
 	CScriptVar *funcVar = addNative(funcDesc);
@@ -1673,39 +1654,45 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 					parameters->addChild("length", new CScriptVar(parameters_idx));
 					functionRoot->addChild("parameters", parameters);
 					// setup a return variable
-					CScriptVarLink *returnVar = NULL;
+					CScriptVarLink *returnVar = 0;
 					if(execute) {
 						// execute function!
 						// add the function's execute space to the symbol table so we can recurse
 						CScriptVarLink *returnVarLink = functionRoot->addChild(TINYJS_RETURN_VAR);
 						scopes.push_back(functionRoot);
-
-						if (a->var->isNative()) {
-							ASSERT(a->var->jsCallback);
-							if (a->var->isNative_ClassMemberFnc())
-								(*a->var->jsCallbackClass)(functionRoot, a->var->jsCallbackUserData);
-							else
-								a->var->jsCallback(functionRoot, a->var->jsCallbackUserData);
-						} else {
-							/* we just want to execute the block, but something could
-							 * have messed up and left us with the wrong ScriptLex, so
-							 * we want to be careful here... */
-							CScriptException *exception = 0;
-							CScriptLex *oldLex = l;
-							CScriptLex *newLex = new CScriptLex(a->var->getString());
-							l = newLex;
-							try {
-								block(execute);
-								// because return will probably have called this, and set execute to false
-								execute = true;
-							} catch (CScriptException *e) {
-								exception = e;
+						try {
+							if (a->var->isNative()) {
+								ASSERT(a->var->jsCallback);
+								if (a->var->isNative_ClassMemberFnc())
+									(*a->var->jsCallbackClass)(functionRoot, a->var->jsCallbackUserData);
+								else
+									a->var->jsCallback(functionRoot, a->var->jsCallbackUserData);
+							} else {
+								/* we just want to execute the block, but something could
+								 * have messed up and left us with the wrong ScriptLex, so
+								 * we want to be careful here... */
+								CScriptLex *oldLex = l;
+								CScriptLex *newLex = new CScriptLex(a->var->getString());
+								l = newLex;
+								try {
+									block(execute);
+									// because return will probably have called this, and set execute to false
+									if(runtimeFlags & RUNTIME_RETURN) {
+										execute = true;
+										runtimeFlags &= ~RUNTIME_RETURN;
+									}
+								} catch (CScriptException *e) {
+									delete newLex;
+									l = oldLex;
+									throw e;
+								}
+								delete newLex;
+								l = oldLex;
 							}
-							delete newLex;
-							l = oldLex;
-
-							if (exception)
-								throw exception;
+						} catch (CScriptException *e) {
+							scopes.pop_back();
+							delete functionRoot;
+							throw e;
 						}
 
 						scopes.pop_back();
@@ -2160,9 +2147,8 @@ CScriptVarSmartLink CTinyJS::assignment(bool &execute) {
 				lhs->replaceWith(lhs->var->mathsOp(rhs->var, '^'));
 		}
 	}
-	else if(lhs->name.length()>0 && !lhs->owned && !lhs->owner) {
-		throwError(execute, lhs->name + " is not defined");
-	}
+	else 
+		CheckRightHandVar(execute, lhs);
 	return lhs;
 }
 // L->R: Precedence 17
@@ -2194,7 +2180,8 @@ void CTinyJS::block(bool &execute) {
 	}
 }
 
-void CTinyJS::statement(bool &execute) {
+CScriptVarSmartLink CTinyJS::statement(bool &execute) {
+	CScriptVarSmartLink ret;
 	if (l->tk=='{') {
 		/* A block of code */
 		block(execute);
@@ -2595,9 +2582,13 @@ void CTinyJS::statement(bool &execute) {
 				catchScope->addChild(exeption_var_name, exeption);
 				exeption->unref(); exeption = 0;
 				scopes.push_back(catchScope);
-
-				block(execute);
-
+				try {
+					block(execute);
+				} catch (CScriptException *e) {
+					scopes.pop_back(); // clean up scopes
+					delete catchScope;
+					throw e;
+				}
 				scopes.pop_back();
 				delete catchScope;
 			} else {
@@ -2673,11 +2664,11 @@ void CTinyJS::statement(bool &execute) {
 			block(execute);
 	} else if(l->tk != LEX_EOF) {
 		/* Execute a simple statement that only contains basic arithmetic... */
-		base(execute);
+		ret = base(execute);
 		l->match(';');
 	} else
 		l->match(LEX_EOF);
-
+	return ret;
 }
 
 /// Get the value of the given variable, or return 0
@@ -2736,5 +2727,14 @@ CScriptVarLink *CTinyJS::findInParentClasses(CScriptVar *object, const std::stri
 
 void CTinyJS::scEval(CScriptVar *c, void *data) {
 	std::string str = c->getParameter("jsCode")->getString();
-	c->setReturnVar(evaluateComplex(str).var);
+	CScriptVar *scEvalScope = scopes.back(); // save scope
+	scopes.pop_back(); // go back to the callers scope
+	try {
+		CScriptVarLink returnVar = evaluateComplex(str).var;
+		scopes.push_back(scEvalScope); // restore Scopes;
+		c->setReturnVar(returnVar.var);
+	} catch (CScriptException *e) {
+		scopes.push_back(scEvalScope); // restore Scopes;
+		throw e;
+	}
 }

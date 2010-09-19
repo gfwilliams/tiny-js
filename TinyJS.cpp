@@ -801,6 +801,16 @@ CScriptVar::CScriptVar(const string &str) {
 	data = str;
 }
 
+CScriptVar::CScriptVar(const char *str) {
+	refs = 0;
+	__proto__ = NULL;
+#if DEBUG_MEMORY
+	mark_allocated(this);
+#endif
+	init();
+	flags = SCRIPTVAR_STRING;
+	data = str;
+}
 
 CScriptVar::CScriptVar(const string &varData, int varFlags) {
 	refs = 0;
@@ -1448,7 +1458,7 @@ CScriptVarLink CTinyJS::evaluateComplex(const string &code) {
 			while (l->tk==';') l->match(';'); // skip empty statements
 		} while (l->tk!=LEX_EOF);
 	} catch (CScriptException *e) {
-		runtimeFlags = 0; // clean up
+		runtimeFlags = 0; // clean up runtimeFlags
 		ostringstream msg;
 		msg << "Error " << e->text << " at " << l->getPosition(e->pos);
 		delete e;
@@ -1533,6 +1543,13 @@ CScriptVarLink *CTinyJS::parseFunctionDefinition() {
   funcVar->var->data = l->getSubString(funcBegin);
   return funcVar;
 }
+
+class CScriptEvalException {
+public:
+	int runtimeFlags;
+	CScriptEvalException(int RuntimeFlags) : runtimeFlags(RuntimeFlags){}
+};
+
 // Precedence 2, Precedence 1 & literals
 CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 	if (l->tk==LEX_R_TRUE) {
@@ -1656,6 +1673,8 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 					// setup a return variable
 					CScriptVarLink *returnVar = 0;
 					if(execute) {
+						int old_function_runtimeFlags = runtimeFlags; // save runtimFlags
+						runtimeFlags &= ~RUNTIME_LOOP_MASK; // clear LOOP-Flags
 						// execute function!
 						// add the function's execute space to the symbol table so we can recurse
 						CScriptVarLink *returnVarLink = functionRoot->addChild(TINYJS_RETURN_VAR);
@@ -1663,10 +1682,43 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 						try {
 							if (a->var->isNative()) {
 								ASSERT(a->var->jsCallback);
-								if (a->var->isNative_ClassMemberFnc())
-									(*a->var->jsCallbackClass)(functionRoot, a->var->jsCallbackUserData);
-								else
-									a->var->jsCallback(functionRoot, a->var->jsCallbackUserData);
+								try {
+									if (a->var->isNative_ClassMemberFnc())
+										(*a->var->jsCallbackClass)(functionRoot, a->var->jsCallbackUserData);
+									else
+										a->var->jsCallback(functionRoot, a->var->jsCallbackUserData);
+									// special thinks for eval() // set execute to false when runtimeFlags setted
+									runtimeFlags = old_function_runtimeFlags | (runtimeFlags & RUNTIME_THROW); // restore runtimeFlags
+									if(runtimeFlags & RUNTIME_THROW) {
+										execute = false;
+									}
+								} catch (CScriptEvalException *e) {
+									runtimeFlags = old_function_runtimeFlags; // restore runtimeFlags
+									if(e->runtimeFlags & RUNTIME_BREAK) {
+										if(runtimeFlags & RUNTIME_CANBREAK) {
+											runtimeFlags |= RUNTIME_BREAK;
+											execute = false;
+										}
+										else
+											throw new CScriptException("'break' must be inside loop or switch");
+									} else if(e->runtimeFlags & RUNTIME_CONTINUE) {
+										if(runtimeFlags & RUNTIME_CANCONTINUE) {
+											runtimeFlags |= RUNTIME_CONTINUE;
+											execute = false;
+										}
+										else
+											throw new CScriptException("'continue' must be inside loop");
+									}
+								} catch (CScriptVarLink *v) {
+									CScriptVarSmartLink e = v;
+									if(runtimeFlags & RUNTIME_CANTHROW) {
+										runtimeFlags |= RUNTIME_THROW;
+										execute = false;
+										this->exeption = e->var->ref();
+									}
+									else
+										throw new CScriptException("uncaught exeption: '"+e->var->getString()+"' in: "+a->name+"()");
+								}
 							} else {
 								/* we just want to execute the block, but something could
 								 * have messed up and left us with the wrong ScriptLex, so
@@ -1677,9 +1729,9 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 								try {
 									block(execute);
 									// because return will probably have called this, and set execute to false
-									if(runtimeFlags & RUNTIME_RETURN) {
+									runtimeFlags = old_function_runtimeFlags | (runtimeFlags & RUNTIME_THROW); // restore runtimeFlags
+									if(!(runtimeFlags & RUNTIME_THROW)) {
 										execute = true;
-										runtimeFlags &= ~RUNTIME_RETURN;
 									}
 								} catch (CScriptException *e) {
 									delete newLex;
@@ -2514,23 +2566,27 @@ CScriptVarSmartLink CTinyJS::statement(bool &execute) {
 		}
 	} else if (l->tk==LEX_R_BREAK) {
 		l->match(LEX_R_BREAK);
-		if(execute && runtimeFlags & RUNTIME_CANBREAK)
-		{
-			runtimeFlags |= RUNTIME_BREAK;
-			execute = false;
+		if(execute) {
+			if(runtimeFlags & RUNTIME_CANBREAK)
+			{
+				runtimeFlags |= RUNTIME_BREAK;
+				execute = false;
+			}
+			else
+				throw new CScriptException("'break' must be inside loop or switch");
 		}
-		else
-			throw new CScriptException("'break' must be inside loop or switch");
 		l->match(';');
 	} else if (l->tk==LEX_R_CONTINUE) {
 		l->match(LEX_R_CONTINUE);
-		if(execute && runtimeFlags & RUNTIME_CANCONTINUE)
-		{
-			runtimeFlags |= RUNTIME_CONTINUE;
-			execute = false;
+		if(execute) {
+			if(runtimeFlags & RUNTIME_CANCONTINUE)
+			{
+				runtimeFlags |= RUNTIME_CONTINUE;
+				execute = false;
+			}
+			else
+				throw new CScriptException("'continue' must be inside loop");
 		}
-		else
-			throw new CScriptException("'continue' must be inside loop");
 		l->match(';');
 	} else if (l->tk==LEX_R_RETURN) {
 		l->match(LEX_R_RETURN);
@@ -2538,10 +2594,10 @@ CScriptVarSmartLink CTinyJS::statement(bool &execute) {
 		if (l->tk != ';')
 			result = base(execute);
 		if (execute) {
-				CScriptVarSmartLink resultVar = scopes.back()->findChild(TINYJS_RETURN_VAR);
-			if (resultVar)
-				resultVar << result;
-			else 
+			CScriptVarSmartLink resultVar = scopes.back()->findChild(TINYJS_RETURN_VAR);
+			if (resultVar) {
+				if(result) resultVar << result;
+			} else 
 				throw new CScriptException("'return' statement, but not in a function.");
 			execute = false;
 		}
@@ -2613,7 +2669,7 @@ CScriptVarSmartLink CTinyJS::statement(bool &execute) {
 				exeption = a->var->ref();
 			}
 			else
-				throw new CScriptException("uncaught exeption: "+a->var->getString(), tokenStart);
+				throw new CScriptException("uncaught exeption: '"+a->var->getString()+"'", tokenStart);
 		}
 	} else if (l->tk==LEX_R_SWITCH) {
 		l->match(LEX_R_SWITCH);
@@ -2726,15 +2782,41 @@ CScriptVarLink *CTinyJS::findInParentClasses(CScriptVar *object, const std::stri
 }
 
 void CTinyJS::scEval(CScriptVar *c, void *data) {
-	std::string str = c->getParameter("jsCode")->getString();
+	std::string code = c->getParameter("jsCode")->getString();
 	CScriptVar *scEvalScope = scopes.back(); // save scope
 	scopes.pop_back(); // go back to the callers scope
 	try {
-		CScriptVarLink returnVar = evaluateComplex(str).var;
-		scopes.push_back(scEvalScope); // restore Scopes;
-		c->setReturnVar(returnVar.var);
+		CScriptLex *oldLex = l;
+		l = new CScriptLex(code);
+		CScriptVarSmartLink returnVar;
+		runtimeFlags |= RUNTIME_CANBREAK | RUNTIME_CANCONTINUE;
+
+		bool execute = true;
+		try {
+			do {
+				returnVar = statement(execute);
+				while (l->tk==';') l->match(';'); // skip empty statements
+			} while (l->tk!=LEX_EOF);
+		} catch (CScriptException *e) {
+			delete l;
+			l = oldLex;
+			throw e;
+		}
+		delete l;
+		l = oldLex;
+
+		this->scopes.push_back(scEvalScope); // restore Scopes;
+		if(returnVar)
+			c->setReturnVar(returnVar->var);
+
+		// check of exeptions
+		int exeption = runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE);
+		runtimeFlags &= ~RUNTIME_LOOP_MASK;
+		if(exeption) throw new CScriptEvalException(exeption);
+
 	} catch (CScriptException *e) {
 		scopes.push_back(scEvalScope); // restore Scopes;
+		e->pos = -1;
 		throw e;
 	}
 }

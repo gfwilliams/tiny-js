@@ -140,14 +140,13 @@ enum SCRIPTVAR_FLAGS {
 									  SCRIPTVAR_NATIVE_MFNC,
 };
 enum RUNTIME_FLAGS {
-	RUNTIME_RETURN				= 1<<0,
-	RUNTIME_CANBREAK			= 1<<1,
-	RUNTIME_BREAK				= 1<<2,
-	RUNTIME_CANCONTINUE		= 1<<3,
-	RUNTIME_CONTINUE			= 1<<4,
-	RUNTIME_NEW					= 1<<5,
-	RUNTIME_CANTHROW			= 1<<6,
-	RUNTIME_THROW				= 1<<7,
+	RUNTIME_CANBREAK			= 1<<0,
+	RUNTIME_BREAK				= 1<<1,
+	RUNTIME_CANCONTINUE		= 1<<2,
+	RUNTIME_CONTINUE			= 1<<3,
+	RUNTIME_NEW					= 1<<4,
+	RUNTIME_CANTHROW			= 1<<5,
+	RUNTIME_THROW				= 1<<6,
 	RUNTIME_BREAK_MASK		= RUNTIME_CANBREAK | RUNTIME_BREAK,
 	RUNTIME_LOOP_MASK			= RUNTIME_BREAK_MASK | RUNTIME_CANCONTINUE | RUNTIME_CONTINUE,
 	RUNTIME_THROW_MASK		= RUNTIME_CANTHROW | RUNTIME_THROW,
@@ -235,6 +234,7 @@ public:
 	CScriptVar(); ///< Create undefined
 	CScriptVar(const std::string &varData, int varFlags); ///< User defined
 	CScriptVar(const std::string &str); ///< Create a string
+	CScriptVar(const char *str); ///< Create a string
 	CScriptVar(double varData);
 	CScriptVar(int val);
 	CScriptVar(bool val);

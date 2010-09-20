@@ -1617,8 +1617,8 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 					else
 						functionRoot->addChildNoDup("this", new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT)); // always add a this-Object
 					// grab in all parameters
-					CScriptVar *parameters = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT);
-					int parameters_idx = 0;
+					CScriptVar *arguments = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT);
+					int arguments_idx = 0;
 					for(SCRIPTVAR_CHILDS::iterator it = a->var->Childs.begin(); it != a->var->Childs.end(); ++it) {
 						if (l->tk!=')') {
 							CScriptVarSmartLink value;
@@ -1626,17 +1626,17 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 								value = assignment(execute);
 								path += value->var->getString();
 							} catch (CScriptException *e) {
-								delete parameters;
+								delete arguments;
 								delete functionRoot;
 								throw e;
 							}
 							if (execute) {
 								if (value->var->isBasic()) {
 									// pass by value
-									functionRoot->addChild( it->first, parameters->addChild(int2string(parameters_idx++) , value->var->deepCopy())->var);
+									functionRoot->addChild( it->first, arguments->addChild(int2string(arguments_idx++) , value->var->deepCopy())->var);
 								} else {
 									// pass by reference
-									functionRoot->addChild(it->first, parameters->addChild(int2string(parameters_idx++), value->var)->var);
+									functionRoot->addChild(it->first, arguments->addChild(int2string(arguments_idx++), value->var)->var);
 								}
 							}
 						} else {
@@ -1650,17 +1650,17 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 							value = assignment(execute);
 							path += value->var->getString();
 						} catch (CScriptException *e) {
-							delete parameters;
+							delete arguments;
 							delete functionRoot;
 							throw e;
 						}
 						if (execute) {
 							if (value->var->isBasic()) {
 								// pass by value
-								parameters->addChild(int2string(parameters_idx++) , value->var->deepCopy());
+								arguments->addChild(int2string(arguments_idx++) , value->var->deepCopy());
 							} else {
 								// pass by reference
-								parameters->addChild(int2string(parameters_idx++), value->var);
+								arguments->addChild(int2string(arguments_idx++), value->var);
 							}
 						}
 						if (l->tk!=')') { l->match(','); path+=','; }
@@ -1668,8 +1668,8 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 
 					l->match(')'); path+=')';
 
-					parameters->addChild("length", new CScriptVar(parameters_idx));
-					functionRoot->addChild("parameters", parameters);
+					arguments->addChild("length", new CScriptVar(arguments_idx));
+					functionRoot->addChild("arguments", arguments);
 					// setup a return variable
 					CScriptVarLink *returnVar = 0;
 					if(execute) {

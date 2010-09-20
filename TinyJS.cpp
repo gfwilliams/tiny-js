@@ -1483,12 +1483,17 @@ string CTinyJS::evaluate(const string &code) {
 
 void CTinyJS::parseFunctionArguments(CScriptVar *funcVar) {
 	l->match('(');
+	CScriptVar *arguments = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT);
+	funcVar->addChild("arguments", arguments);
+	int idx = 0;
 	while (l->tk!=')') {
-		funcVar->addChildNoDup(l->tkStr);
+		arguments->addChild(int2string(idx++), new CScriptVar(l->tkStr));
+//		funcVar->addChildNoDup(l->tkStr);
 		l->match(LEX_ID);
 		if (l->tk!=')') l->match(',');
 	}
 	l->match(')');
+	funcVar->addChild("length", new CScriptVar(idx));
 }
 void CTinyJS::addNative(const string &funcDesc, JSCallback ptr, void *userdata) {
 	CScriptVar *funcVar = addNative(funcDesc);
@@ -1617,11 +1622,13 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 					else
 						functionRoot->addChildNoDup("this", new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT)); // always add a this-Object
 					// grab in all parameters
+					CScriptVarLink *arguments_proto = a->var->findChild("arguments");
+					int length_proto = arguments_proto ? arguments_proto->var->getChildren() : 0;
 					CScriptVar *arguments = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT);
 					int arguments_idx = 0;
-					for(SCRIPTVAR_CHILDS::iterator it = a->var->Childs.begin(); it != a->var->Childs.end(); ++it) {
+					for(; l->tk!=')' || arguments_idx<length_proto; ++arguments_idx) {
+						CScriptVarSmartLink value;
 						if (l->tk!=')') {
-							CScriptVarSmartLink value;
 							try {
 								value = assignment(execute);
 								path += value->var->getString();
@@ -1630,49 +1637,30 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 								delete functionRoot;
 								throw e;
 							}
-							if (execute) {
-								if (value->var->isBasic()) {
-									// pass by value
-									functionRoot->addChild( it->first, arguments->addChild(int2string(arguments_idx++) , value->var->deepCopy())->var);
-								} else {
-									// pass by reference
-									functionRoot->addChild(it->first, arguments->addChild(int2string(arguments_idx++), value->var)->var);
-								}
-							}
-						} else {
-							functionRoot->addChild(it->first, new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_UNDEFINED));
-						}
-						if (l->tk!=')') { l->match(','); path+=','; }
-					}
-					while(l->tk!=')') {
-						CScriptVarSmartLink value;
-						try {
-							value = assignment(execute);
-							path += value->var->getString();
-						} catch (CScriptException *e) {
-							delete arguments;
-							delete functionRoot;
-							throw e;
-						}
+
+						} else
+							value = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_UNDEFINED);
 						if (execute) {
 							if (value->var->isBasic()) {
 								// pass by value
-								arguments->addChild(int2string(arguments_idx++) , value->var->deepCopy());
+								value = arguments->addChild(int2string(arguments_idx) , value->var->deepCopy());
 							} else {
 								// pass by reference
-								arguments->addChild(int2string(arguments_idx++), value->var);
+								value = arguments->addChild(int2string(arguments_idx), value->var);
 							}
+							CScriptVarLink *argument_name;
+							if(arguments_proto && (argument_name = arguments_proto->var->findChild(int2string(arguments_idx))))
+								functionRoot->addChild(argument_name->var->getString(), value->var);
 						}
 						if (l->tk!=')') { l->match(','); path+=','; }
 					}
-
 					l->match(')'); path+=')';
 
-					arguments->addChild("length", new CScriptVar(arguments_idx));
-					functionRoot->addChild("arguments", arguments);
 					// setup a return variable
 					CScriptVarLink *returnVar = 0;
 					if(execute) {
+						arguments->addChild("length", new CScriptVar(arguments_idx));
+						functionRoot->addChild("arguments", arguments);
 						int old_function_runtimeFlags = runtimeFlags; // save runtimFlags
 						runtimeFlags &= ~RUNTIME_LOOP_MASK; // clear LOOP-Flags
 						// execute function!

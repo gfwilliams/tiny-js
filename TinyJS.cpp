@@ -142,7 +142,7 @@ inline CScriptVarSmartLink::CScriptVarSmartLink () : link(0){}
 inline CScriptVarSmartLink::CScriptVarSmartLink (CScriptVarLink *Link) : link(Link) {}
 
 // this constructor replace "CScriptVarLink *link=0 ; CREATE_LINK(link, Var);"
-inline CScriptVarSmartLink::CScriptVarSmartLink (CScriptVar *Var) {
+inline CScriptVarSmartLink::CScriptVarSmartLink (CScriptVar *Var) : link(0) {
 	*this = Var;
 }
 // this operator replace "CREATE_LINK(link, Var);"
@@ -163,10 +163,11 @@ inline CScriptVarSmartLink::~CScriptVarSmartLink () {
 }
 // the copy-stuff has a special thing - 
 // when copying a SmartLink to an other then the right hand side will lost your link
-inline CScriptVarSmartLink::CScriptVarSmartLink (const CScriptVarSmartLink &Link) {
+inline CScriptVarSmartLink::CScriptVarSmartLink (const CScriptVarSmartLink &Link) : link(0) {
 	*this = Link; 
 }
 inline CScriptVarSmartLink &CScriptVarSmartLink::operator = (const CScriptVarSmartLink &Link) { 
+	if(link && !link->owned) delete link; 
 	link = Link.link; 
 	((CScriptVarSmartLink &)Link).link = 0; // explicit cast to a non const ref
 	return *this;

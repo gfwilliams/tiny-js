@@ -713,6 +713,9 @@ CScriptLex *CScriptLex::getSubLex(int lastPosition) {
 	else
 			return new CScriptLex( this, lastPosition, dataEnd );
 }
+int CScriptLex::getDataPos() {
+	return dataPos;
+}
 
 string CScriptLex::getPosition(int pos) {
 	if (pos<0) pos=tokenLastEnd;
@@ -767,6 +770,7 @@ CScriptVarLink::~CScriptVarLink() {
 }
 
 void CScriptVarLink::replaceWith(CScriptVar *newVar) {
+	if(!newVar) newVar = new CScriptVar();
 	CScriptVar *oldVar = var;
 	var = newVar->ref();
 	oldVar->unref();
@@ -1400,7 +1404,9 @@ int CScriptVar::getRefs() {
 
 // ----------------------------------------------------------------------------------- CSCRIPT
 
-CTinyJS::CTinyJS() {
+CTinyJS::CTinyJS(bool TwoPass, bool TwoPassEval) {
+	twoPass=TwoPass;
+	twoPassEval=TwoPassEval;
 	l = NULL;
 	runtimeFlags = 0;
 	root = (new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT))->ref();
@@ -1454,6 +1460,20 @@ CScriptVarLink CTinyJS::evaluateComplex(const string &code) {
 	CScriptVarSmartLink v;
 	try {
 		bool execute = true;
+		bool noexecute = false;
+		SET_RUNTIME_PASS_SINGLE;
+		if(twoPass)
+		{
+			printf("starte Pass 1\n");
+			SET_RUNTIME_PASS_TWO_1;
+			do {
+				statement(noexecute);
+				while (l->tk==';') l->match(';'); // skip empty statements
+			} while (l->tk!=LEX_EOF);
+			l->reset();
+			SET_RUNTIME_PASS_TWO_2;
+			printf("starte Pass 2\n");
+		}
 		do {
 			v = statement(execute);
 			while (l->tk==';') l->match(';'); // skip empty statements
@@ -1489,7 +1509,6 @@ void CTinyJS::parseFunctionArguments(CScriptVar *funcVar) {
 	int idx = 0;
 	while (l->tk!=')') {
 		arguments->addChild(int2string(idx++), new CScriptVar(l->tkStr));
-//		funcVar->addChildNoDup(l->tkStr);
 		l->match(LEX_ID);
 		if (l->tk!=')') l->match(',');
 	}
@@ -1532,22 +1551,52 @@ CScriptVar *CTinyJS::addNative(const string &funcDesc) {
 	return funcVar;
 }
 
-CScriptVarLink *CTinyJS::parseFunctionDefinition() {
-  // actually parse a function...
-  l->match(LEX_R_FUNCTION);
-  string funcName = TINYJS_TEMP_NAME;
-  /* we can have functions without names */
-  if (l->tk==LEX_ID) {
-	funcName = l->tkStr;
-	l->match(LEX_ID);
-  }
-  CScriptVarLink *funcVar = new CScriptVarLink(new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FUNCTION), funcName);
-  parseFunctionArguments(funcVar->var);
-  int funcBegin = l->tokenStart;
-  bool noexecute = false;
-  block(noexecute);
-  funcVar->var->data = l->getSubString(funcBegin);
-  return funcVar;
+CScriptVarSmartLink CTinyJS::parseFunctionDefinition() {
+	// actually parse a function...
+	int funcOffset = l->getDataPos();
+	l->match(LEX_R_FUNCTION);
+	string funcName = TINYJS_TEMP_NAME;
+	/* we can have functions without names */
+	if (l->tk==LEX_ID) {
+		funcName = l->tkStr;
+		l->match(LEX_ID);
+	}
+	funcOffset -= l->getDataPos();
+	CScriptVarSmartLink funcVar = new CScriptVarLink(new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FUNCTION), funcName);
+	parseFunctionArguments(funcVar->var);
+	funcOffset += l->getDataPos();
+	bool noexecute = false;
+	if(IS_RUNTIME_PASS_TWO_2) {
+		SAVE_RUNTIME_PASS;
+		SET_RUNTIME_PASS_SINGLE;
+		block(noexecute);
+		RESTORE_RUNTIME_PASS;
+	} else if(IS_RUNTIME_PASS_TWO_1) {
+		int funcBegin = l->tokenStart;
+		CScriptVar *locale = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT);
+		CScriptVarLink *anonymous_link = locale->addChild(TINYJS_ANONYMOUS_VAR, new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT));
+		CScriptVarLink *funcOffset_link = anonymous_link->var->addChild("funcOffset", new CScriptVar(funcOffset));
+		CScriptVarLink *locale_link = funcVar->var->addChild(TINYJS_LOKALE_VAR, locale);
+		locale_link->hidden = locale_link->dontEnumerable = true;
+		scopes.push_back(locale);
+		try {
+			block(noexecute);
+		} catch(CScriptException *e) {
+			scopes.pop_back();
+			throw e;
+		}
+		scopes.pop_back();
+		funcVar->var->data = l->getSubString(funcBegin);
+		if(anonymous_link->var->Childs.size() == 1)
+			locale->removeLink(anonymous_link);
+		else
+			anonymous_link->var->removeLink(funcOffset_link);
+	} else {
+		int funcBegin = l->tokenStart;
+		block(noexecute);
+		funcVar->var->data = l->getSubString(funcBegin);
+	}
+	return funcVar;
 }
 
 class CScriptEvalException {
@@ -1599,7 +1648,11 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 		if (execute && !a) {
 			/* Variable doesn't exist! JavaScript says we should create it
 			 * (we won't add it here. This is done in the assignment operator)*/
-			a = new CScriptVarLink(new CScriptVar(), l->tkStr);
+			if(l->tkStr == "this") {
+				a = new CScriptVarLink(this->root, l->tkStr);
+				parent = this->root;
+			} else
+				a = new CScriptVarLink(new CScriptVar(), l->tkStr);
 		}
 		string path = a->name;
 		if(op==LEX_ID)
@@ -1617,11 +1670,19 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 					}
 					l->match('('); path += '(';
 					// create a new symbol table entry for execution of this function
-					CScriptVar *functionRoot = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FUNCTION);
+					CScriptVarSmartLink functionRoot(new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FUNCTION));
 					if (parent)
-						functionRoot->addChildNoDup("this", parent);
-					else
-						functionRoot->addChildNoDup("this", new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT)); // always add a this-Object
+						functionRoot->var->addChildNoDup("this", parent);
+//					else
+//						functionRoot->var->addChildNoDup("this", this->root);//new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT)); // always add a this-Object
+//						functionRoot->var->addChildNoDup("this", new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT)); // always add a this-Object
+					// insert locale
+					CScriptVarLink *__locale__ = a->var->findChild(TINYJS_LOKALE_VAR);
+					if(__locale__) {
+						for(SCRIPTVAR_CHILDS::iterator it = __locale__->var->Childs.begin(); it != __locale__->var->Childs.end(); ++it) {
+							functionRoot->var->addChild(it->first , it->second->var->deepCopy());
+						}
+					}
 					// grab in all parameters
 					CScriptVarLink *arguments_proto = a->var->findChild("arguments");
 					int length_proto = arguments_proto ? arguments_proto->var->getChildren() : 0;
@@ -1635,47 +1696,47 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 								path += value->var->getString();
 							} catch (CScriptException *e) {
 								delete arguments;
-								delete functionRoot;
 								throw e;
 							}
 
 						} else
 							value = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_UNDEFINED);
 						if (execute) {
+							string arguments_idx_str; int2string(arguments_idx, arguments_idx_str);
 							if (value->var->isBasic()) {
 								// pass by value
-								value = arguments->addChild(int2string(arguments_idx) , value->var->deepCopy());
+								value = arguments->addChild(arguments_idx_str , value->var->deepCopy());
 							} else {
 								// pass by reference
-								value = arguments->addChild(int2string(arguments_idx), value->var);
+								value = arguments->addChild(arguments_idx_str, value->var);
 							}
 							CScriptVarLink *argument_name;
-							if(arguments_proto && (argument_name = arguments_proto->var->findChild(int2string(arguments_idx))))
-								functionRoot->addChild(argument_name->var->getString(), value->var);
+							if(arguments_proto && (argument_name = arguments_proto->var->findChild(arguments_idx_str)))
+								functionRoot->var->addChildNoDup(argument_name->var->getString(), value->var);
 						}
 						if (l->tk!=')') { l->match(','); path+=','; }
 					}
 					l->match(')'); path+=')';
+					arguments->addChild("length", new CScriptVar(arguments_idx));
+					functionRoot->var->addChild("arguments", arguments);
 
 					// setup a return variable
-					CScriptVarLink *returnVar = 0;
+					CScriptVarSmartLink returnVar;
 					if(execute) {
-						arguments->addChild("length", new CScriptVar(arguments_idx));
-						functionRoot->addChild("arguments", arguments);
 						int old_function_runtimeFlags = runtimeFlags; // save runtimFlags
 						runtimeFlags &= ~RUNTIME_LOOP_MASK; // clear LOOP-Flags
 						// execute function!
 						// add the function's execute space to the symbol table so we can recurse
-						CScriptVarLink *returnVarLink = functionRoot->addChild(TINYJS_RETURN_VAR);
-						scopes.push_back(functionRoot);
+//						CScriptVarLink *returnVarLink = functionRoot->addChild(TINYJS_RETURN_VAR);
+						scopes.push_back(functionRoot->var);
 						try {
 							if (a->var->isNative()) {
 								ASSERT(a->var->jsCallback);
 								try {
 									if (a->var->isNative_ClassMemberFnc())
-										(*a->var->jsCallbackClass)(functionRoot, a->var->jsCallbackUserData);
+										(*a->var->jsCallbackClass)(functionRoot->var, a->var->jsCallbackUserData);
 									else
-										a->var->jsCallback(functionRoot, a->var->jsCallbackUserData);
+										a->var->jsCallback(functionRoot->var, a->var->jsCallbackUserData);
 									// special thinks for eval() // set execute to false when runtimeFlags setted
 									runtimeFlags = old_function_runtimeFlags | (runtimeFlags & RUNTIME_THROW); // restore runtimeFlags
 									if(runtimeFlags & RUNTIME_THROW) {
@@ -1716,7 +1777,12 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 								CScriptLex *newLex = new CScriptLex(a->var->getString());
 								l = newLex;
 								try {
+									SET_RUNTIME_CANRETURN;
+									SAVE_RUNTIME_PASS;
+									if(__locale__) 
+										SET_RUNTIME_PASS_TWO_2;
 									block(execute);
+									RESTORE_RUNTIME_PASS;
 									// because return will probably have called this, and set execute to false
 									runtimeFlags = old_function_runtimeFlags | (runtimeFlags & RUNTIME_THROW); // restore runtimeFlags
 									if(!(runtimeFlags & RUNTIME_THROW)) {
@@ -1732,20 +1798,21 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 							}
 						} catch (CScriptException *e) {
 							scopes.pop_back();
-							delete functionRoot;
 							throw e;
 						}
 
 						scopes.pop_back();
 						/* get the real return var before we remove it from our function */
-						returnVar = new CScriptVarLink(returnVarLink->var);
-						functionRoot->removeLink(returnVarLink);
+						if(returnVar = functionRoot->var->findChild(TINYJS_RETURN_VAR))
+							returnVar = new CScriptVarLink(returnVar->var);
+//						returnVar = functionRoot->getReturnVar();
+//						functionRoot->removeLink(returnVarLink);
 					}
-					delete functionRoot;
 					if (returnVar)
 						a = returnVar;
 					else
-						a = new CScriptVarLink(new CScriptVar());
+						a = new CScriptVarLink(
+						new CScriptVar());
 				} else {
 					// function, but not executing - just parse args and be done
 					l->match('(');
@@ -1754,9 +1821,9 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 						if (l->tk!=')') l->match(',');
 					}
 					l->match(')');
-					if (l->tk == '{') {
-						block(execute);
-					}
+//					if (l->tk == '{') {
+//						block(execute, SINGLE_PASS);
+//					}
 				}
 			} else if (l->tk == '.' || l->tk == '[') { // ------------------------------------- Record Access
 				string name;
@@ -1852,10 +1919,27 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 		return new CScriptVarLink(contents);
 	}
 	if (l->tk==LEX_R_FUNCTION) {
-		CScriptVarLink *funcVar = parseFunctionDefinition();
-			if (funcVar->name != TINYJS_TEMP_NAME)
-				TRACE("Functions not defined at statement-level are not meant to have a name");
-			return funcVar;
+		CScriptVarLink *funcOffset = 0;
+		CScriptVarLink *anonymous = scopes.back()->findChild(TINYJS_ANONYMOUS_VAR);
+		if(anonymous) funcOffset = anonymous->var->findChild("funcOffset");
+		string anonymous_name = int2string(l->getDataPos()-(funcOffset?funcOffset->var->getInt():0));
+		CScriptVarSmartLink funcVar = parseFunctionDefinition();
+		this->runtimeFlags;
+//				funcName = anonymous ? int2string(l->tokenStart) : l->tkStr;
+
+		funcVar->name = TINYJS_TEMP_NAME; // allways anonymous
+		if(IS_RUNTIME_PASS_TWO_1)
+		{
+			CScriptVarLink *anonymous = scopes.back()->findChildOrCreate(TINYJS_ANONYMOUS_VAR, SCRIPTVAR_OBJECT);
+			anonymous->var->addChild(anonymous_name, funcVar->var);
+		}
+		if(IS_RUNTIME_PASS_TWO_2)
+		{
+			CScriptVarLink *anonymous = scopes.back()->findChild(TINYJS_ANONYMOUS_VAR);
+			if(anonymous) 
+				funcVar->replaceWith(anonymous->var->findChild(anonymous_name));
+		}
+		return funcVar;
 	}
 	if (l->tk==LEX_R_NEW) {
 		// new -> create a new object
@@ -2207,7 +2291,7 @@ CScriptVarSmartLink CTinyJS::base(bool &execute) {
 }
 void CTinyJS::block(bool &execute) {
 	l->match('{');
-	if (execute) {
+	if (execute || IS_RUNTIME_PASS_TWO_1) {
 		while (l->tk && l->tk!='}')
 			statement(execute);
 		l->match('}');
@@ -2239,7 +2323,7 @@ CScriptVarSmartLink CTinyJS::statement(bool &execute) {
 			CScriptVarSmartLink a;
 			string var = l->tkStr;
 			l->match(LEX_ID);
-			if (execute) {
+			if (execute || IS_RUNTIME_PASS_TWO_1) {
 				a = scopes.back()->findChildOrCreate(var);
 				a->dontDelete = true;
 			}// sort out initialiser
@@ -2271,26 +2355,104 @@ CScriptVarSmartLink CTinyJS::statement(bool &execute) {
 		// We do repetition by pulling out the string representing our statement
 		// there's definitely some opportunity for optimisation here
 		l->match(LEX_R_DO);
-		bool loopCond = true; 
-		bool old_execute = execute;
-		int old_loop_runtimeFlags = runtimeFlags & RUNTIME_LOOP_MASK;
-		runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | RUNTIME_CANBREAK | RUNTIME_CANCONTINUE;
-		int whileBodyStart = l->tokenStart;
-		int whileCondStart = 0;
-		CScriptLex *oldLex = NULL;
-		CScriptLex *whileBody = NULL;
-		CScriptLex *whileCond = NULL;
-		int loopCount = TINYJS_LOOP_MAX_ITERATIONS;
-		while (loopCond && loopCount-->0) 
+		if(IS_RUNTIME_PASS_TWO_1)
 		{
-			if(whileBody)
-			{
-				whileBody->reset();
-				l = whileBody;
-			}
 			statement(execute);
-			if(!whileBody) whileBody = l->getSubLex(whileBodyStart);
-			if(old_execute && !execute)
+			l->match(LEX_R_WHILE);
+			l->match('(');
+			base(execute);
+			l->match(')');
+			l->match(';');
+		} else {
+			bool loopCond = true; 
+			bool old_execute = execute;
+			int old_loop_runtimeFlags = runtimeFlags & RUNTIME_LOOP_MASK;
+			runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | RUNTIME_CANBREAK | RUNTIME_CANCONTINUE;
+			int whileBodyStart = l->tokenStart;
+			int whileCondStart = 0;
+			CScriptLex *oldLex = NULL;
+			CScriptLex *whileBody = NULL;
+			CScriptLex *whileCond = NULL;
+			int loopCount = TINYJS_LOOP_MAX_ITERATIONS;
+			while (loopCond && loopCount-->0) 
+			{
+				if(whileBody)
+				{
+					whileBody->reset();
+					l = whileBody;
+				}
+				statement(execute);
+				if(!whileBody) whileBody = l->getSubLex(whileBodyStart);
+				if(old_execute && !execute)
+				{
+					// break or continue
+					if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
+					{
+						execute = old_execute;
+						if(runtimeFlags & RUNTIME_BREAK)
+							loopCond = false;
+						runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
+					}
+					// other stuff e.g return, throw
+				}
+
+				if(!whileCond)
+				{
+					l->match(LEX_R_WHILE);
+					l->match('(');
+					whileCondStart = l->tokenStart;
+				}
+				else
+				{
+					whileCond->reset();
+					l = whileCond;
+				}
+				CScriptVarSmartLink cond = base(execute);
+				loopCond = execute && cond->var->getBool();
+				if(!whileCond)
+				{
+					whileCond = l->getSubLex(whileCondStart);
+					l->match(')');
+					l->match(';');
+					oldLex = l;
+				}
+			}
+			runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | old_loop_runtimeFlags;
+			l = oldLex;
+			delete whileCond;
+			delete whileBody;
+
+			if (loopCount<=0) {
+				root->trace();
+				TRACE("WHILE Loop exceeded %d iterations at %s\n", TINYJS_LOOP_MAX_ITERATIONS, l->getPosition(l->tokenLastEnd).c_str());
+				throw new CScriptException("LOOP_ERROR");
+			}
+		}
+	} else if (l->tk==LEX_R_WHILE) {
+		// We do repetition by pulling out the string representing our statement
+		// there's definitely some opportunity for optimisation here
+		l->match(LEX_R_WHILE);
+		l->match('(');
+		if(IS_RUNTIME_PASS_TWO_1) {
+			base(execute);
+			l->match(')');
+			statement(execute);
+		} else {
+			int whileCondStart = l->tokenStart;
+			bool noexecute = false;
+			CScriptVarSmartLink cond = base(execute);
+			bool loopCond = execute && cond->var->getBool();
+			CScriptLex *whileCond = l->getSubLex(whileCondStart);
+			l->match(')');
+			int whileBodyStart = l->tokenStart;
+
+			bool old_execute = execute;
+			int old_loop_runtimeFlags = runtimeFlags & RUNTIME_LOOP_MASK;
+			runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | RUNTIME_CANBREAK | RUNTIME_CANCONTINUE;
+			statement(loopCond ? execute : noexecute);
+			CScriptLex *whileBody = l->getSubLex(whileBodyStart);
+			CScriptLex *oldLex = l;
+			if(loopCond && old_execute != execute)
 			{
 				// break or continue
 				if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
@@ -2303,102 +2465,40 @@ CScriptVarSmartLink CTinyJS::statement(bool &execute) {
 				// other stuff e.g return, throw
 			}
 
-			if(!whileCond)
-			{
-				l->match(LEX_R_WHILE);
-				l->match('(');
-				whileCondStart = l->tokenStart;
-			}
-			else
-			{
+			int loopCount = TINYJS_LOOP_MAX_ITERATIONS;
+			while (loopCond && loopCount-->0) {
 				whileCond->reset();
 				l = whileCond;
-			}
-			CScriptVarSmartLink cond = base(execute);
-			loopCond = execute && cond->var->getBool();
-			if(!whileCond)
-			{
-				whileCond = l->getSubLex(whileCondStart);
-				l->match(')');
-				l->match(';');
-				oldLex = l;
-			}
-		}
-		runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | old_loop_runtimeFlags;
-		l = oldLex;
-		delete whileCond;
-		delete whileBody;
-
-		if (loopCount<=0) {
-			root->trace();
-			TRACE("WHILE Loop exceeded %d iterations at %s\n", TINYJS_LOOP_MAX_ITERATIONS, l->getPosition(l->tokenLastEnd).c_str());
-			throw new CScriptException("LOOP_ERROR");
-		}
-	} else if (l->tk==LEX_R_WHILE) {
-		// We do repetition by pulling out the string representing our statement
-		// there's definitely some opportunity for optimisation here
-		l->match(LEX_R_WHILE);
-		l->match('(');
-		int whileCondStart = l->tokenStart;
-		bool noexecute = false;
-		CScriptVarSmartLink cond = base(execute);
-		bool loopCond = execute && cond->var->getBool();
-		CScriptLex *whileCond = l->getSubLex(whileCondStart);
-		l->match(')');
-		int whileBodyStart = l->tokenStart;
-
-		bool old_execute = execute;
-		int old_loop_runtimeFlags = runtimeFlags & RUNTIME_LOOP_MASK;
-		runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | RUNTIME_CANBREAK | RUNTIME_CANCONTINUE;
-		statement(loopCond ? execute : noexecute);
-		CScriptLex *whileBody = l->getSubLex(whileBodyStart);
-		CScriptLex *oldLex = l;
-		if(loopCond && old_execute != execute)
-		{
-			// break or continue
-			if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
-			{
-				execute = old_execute;
-				if(runtimeFlags & RUNTIME_BREAK)
-					loopCond = false;
-				runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
-			}
-			// other stuff e.g return, throw
-		}
-
-		int loopCount = TINYJS_LOOP_MAX_ITERATIONS;
-		while (loopCond && loopCount-->0) {
-			whileCond->reset();
-			l = whileCond;
-			cond = base(execute);
-			loopCond = execute && cond->var->getBool();
-			if (loopCond) {
-				whileBody->reset();
-				l = whileBody;
-				statement(execute);
-				if(!execute)
-				{
-					// break or continue
-					if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
+				cond = base(execute);
+				loopCond = execute && cond->var->getBool();
+				if (loopCond) {
+					whileBody->reset();
+					l = whileBody;
+					statement(execute);
+					if(!execute)
 					{
-						execute = old_execute;
-						if(runtimeFlags & RUNTIME_BREAK)
-							loopCond = false;
-						runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
+						// break or continue
+						if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
+						{
+							execute = old_execute;
+							if(runtimeFlags & RUNTIME_BREAK)
+								loopCond = false;
+							runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
+						}
+						// other stuff e.g return, throw
 					}
-					// other stuff e.g return, throw
 				}
 			}
-		}
-		runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | old_loop_runtimeFlags;
-		l = oldLex;
-		delete whileCond;
-		delete whileBody;
+			runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | old_loop_runtimeFlags;
+			l = oldLex;
+			delete whileCond;
+			delete whileBody;
 
-		if (loopCount<=0) {
-			root->trace();
-			TRACE("WHILE Loop exceeded %d iterations at %s\n", TINYJS_LOOP_MAX_ITERATIONS, l->getPosition(l->tokenLastEnd).c_str());
-			throw new CScriptException("LOOP_ERROR");
+			if (loopCount<=0) {
+				root->trace();
+				TRACE("WHILE Loop exceeded %d iterations at %s\n", TINYJS_LOOP_MAX_ITERATIONS, l->getPosition(l->tokenLastEnd).c_str());
+				throw new CScriptException("LOOP_ERROR");
+			}
 		}
 	} else if (l->tk==LEX_R_FOR) {
 		l->match(LEX_R_FOR);
@@ -2434,31 +2534,35 @@ CScriptVarSmartLink CTinyJS::statement(bool &execute) {
 					real_for_var = root->addChildNoDup(for_var->name, for_var->var);
 				for_var = real_for_var;
 			}
-			int forBodyStart = l->tokenStart;
-			bool old_execute = execute;
-			int old_loop_runtimeFlags = runtimeFlags & RUNTIME_LOOP_MASK;
-			runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | RUNTIME_CANBREAK | RUNTIME_CANCONTINUE;
-			for(SCRIPTVAR_CHILDS::iterator it = for_in_var->var->Childs.begin(); execute && it != for_in_var->var->Childs.end(); ++it) {
-				if (for_each_in)
-					for_var->replaceWith(it->second->var);
-				else
-					for_var->replaceWith(new CScriptVar(it->first));
-				l->reset(forBodyStart);
+			if(IS_RUNTIME_PASS_TWO_1)
 				statement(execute);
-				if(!execute)
-				{
-					// break or continue
-					if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
+			else {
+				int forBodyStart = l->tokenStart;
+				bool old_execute = execute;
+				int old_loop_runtimeFlags = runtimeFlags & RUNTIME_LOOP_MASK;
+				runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | RUNTIME_CANBREAK | RUNTIME_CANCONTINUE;
+				for(SCRIPTVAR_CHILDS::iterator it = for_in_var->var->Childs.begin(); execute && it != for_in_var->var->Childs.end(); ++it) {
+					if (for_each_in)
+						for_var->replaceWith(it->second->var);
+					else
+						for_var->replaceWith(new CScriptVar(it->first));
+					l->reset(forBodyStart);
+					statement(execute);
+					if(!execute)
 					{
-						execute = old_execute;
-						if(runtimeFlags & RUNTIME_BREAK)
-							break;
-						runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
+						// break or continue
+						if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
+						{
+							execute = old_execute;
+							if(runtimeFlags & RUNTIME_BREAK)
+								break;
+							runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
+						}
+						// other stuff e.g return, throw
 					}
-					// other stuff e.g return, throw
 				}
+				runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | old_loop_runtimeFlags;
 			}
-			runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | old_loop_runtimeFlags;
 		} else {
 			statement(execute); // initialisation
 			//l->match(';');
@@ -2467,8 +2571,7 @@ CScriptVarSmartLink CTinyJS::statement(bool &execute) {
 			bool cond_empty = true;
 			bool loopCond = true;	// Empty Condition -->always true
 			CScriptVarSmartLink cond;
-			if(l->tk != ';')
-			{
+			if(l->tk != ';') {
 				cond_empty = false;
 				cond = base(execute); // condition
 				loopCond = execute && cond->var->getBool();
@@ -2485,74 +2588,75 @@ CScriptVarSmartLink CTinyJS::statement(bool &execute) {
 				forIter = l->getSubLex(forIterStart);
 			}
 			l->match(')');
-			int forBodyStart = l->tokenStart;
-			bool old_execute = execute;
-			int old_loop_runtimeFlags = runtimeFlags & RUNTIME_LOOP_MASK;
-			runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | RUNTIME_CANBREAK | RUNTIME_CANCONTINUE;
-			statement(loopCond ? execute : noexecute);
-			CScriptLex *forBody = l->getSubLex(forBodyStart);
-			CScriptLex *oldLex = l;
-			if(loopCond && old_execute != execute)
-			{
-				// break or continue
-				if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
-				{
-					execute = old_execute;
-					if(runtimeFlags & RUNTIME_BREAK)
-						loopCond = false;
-					runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
-				}
-				// other stuff e.g return, throw
-			}
-
-			if (loopCond && !iter_empty) {
-				forIter->reset();
-				l = forIter;
-				base(execute);
-			}
-			int loopCount = TINYJS_LOOP_MAX_ITERATIONS;
-			while (execute && loopCond && loopCount-->0) {
-				if(!cond_empty)
-				{
-					forCond->reset();
-					l = forCond;
-					cond = base(execute);
-					loopCond = cond->var->getBool();
-				}
-				if (execute && loopCond) {
-					forBody->reset();
-					l = forBody;
-					statement(execute);
-					if(!execute)
-					{
-						// break or continue;
-						if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE))
-						{
-							execute = old_execute;
-							if(runtimeFlags & RUNTIME_BREAK)
-								loopCond = false;
-							runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
-						}
-						// return nothing to do
+			if(IS_RUNTIME_PASS_TWO_1) {
+				delete forCond;
+				delete forIter;
+				statement(execute);
+			} else {
+				int forBodyStart = l->tokenStart;
+				bool old_execute = execute;
+				int old_loop_runtimeFlags = runtimeFlags & RUNTIME_LOOP_MASK;
+				runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | RUNTIME_CANBREAK | RUNTIME_CANCONTINUE;
+				statement(loopCond ? execute : noexecute);
+				CScriptLex *forBody = l->getSubLex(forBodyStart);
+				CScriptLex *oldLex = l;
+				if(loopCond && old_execute != execute) {
+					// break or continue
+					if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE)) {
+						execute = old_execute;
+						if(runtimeFlags & RUNTIME_BREAK)
+							loopCond = false;
+						runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
 					}
+					// other stuff e.g return, throw
 				}
-				if (execute && loopCond && !iter_empty) {
+
+				if (loopCond && !iter_empty) {
 					forIter->reset();
 					l = forIter;
 					base(execute);
 				}
+				int loopCount = TINYJS_LOOP_MAX_ITERATIONS;
+				while (execute && loopCond && loopCount-->0) {
+					if(!cond_empty) {
+						forCond->reset();
+						l = forCond;
+						cond = base(execute);
+						loopCond = cond->var->getBool();
+					}
+					if (execute && loopCond) {
+						forBody->reset();
+						l = forBody;
+						statement(execute);
+						if(!execute) {
+							// break or continue;
+							if(runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE)) {
+								execute = old_execute;
+								if(runtimeFlags & RUNTIME_BREAK)
+									loopCond = false;
+								runtimeFlags &= ~(RUNTIME_BREAK | RUNTIME_CONTINUE);
+							}
+							// return nothing to do
+						}
+					}
+					if (execute && loopCond && !iter_empty) {
+						forIter->reset();
+						l = forIter;
+						base(execute);
+					}
+				}
+				runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | old_loop_runtimeFlags;
+				l = oldLex;
+				delete forCond;
+				delete forIter;
+				delete forBody;
+				if (loopCount<=0) {
+					root->trace();
+					TRACE("FOR Loop exceeded %d iterations at %s\n", TINYJS_LOOP_MAX_ITERATIONS, l->getPosition(l->tokenLastEnd).c_str());
+					throw new CScriptException("LOOP_ERROR");
+				}
 			}
-			runtimeFlags = (runtimeFlags & ~RUNTIME_LOOP_MASK) | old_loop_runtimeFlags;
-			l = oldLex;
-			delete forCond;
-			delete forIter;
-			delete forBody;
-			if (loopCount<=0) {
-				root->trace();
-				TRACE("FOR Loop exceeded %d iterations at %s\n", TINYJS_LOOP_MAX_ITERATIONS, l->getPosition(l->tokenLastEnd).c_str());
-				throw new CScriptException("LOOP_ERROR");
-			}
-		}
+		}					
 	} else if (l->tk==LEX_R_BREAK) {
 		l->match(LEX_R_BREAK);
 		if(execute) {
@@ -2583,9 +2687,8 @@ CScriptVarSmartLink CTinyJS::statement(bool &execute) {
 		if (l->tk != ';')
 			result = base(execute);
 		if (execute) {
-			CScriptVarSmartLink resultVar = scopes.back()->findChild(TINYJS_RETURN_VAR);
-			if (resultVar) {
-				if(result) resultVar << result;
+			if (IS_RUNTIME_CANRETURN) {
+				if(result->var) scopes.back()->setReturnVar(result->var);
 			} else 
 				throw new CScriptException("'return' statement, but not in a function.");
 			execute = false;
@@ -2593,7 +2696,7 @@ CScriptVarSmartLink CTinyJS::statement(bool &execute) {
 		l->match(';');
 	} else if (l->tk==LEX_R_FUNCTION) {
 		CScriptVarSmartLink funcVar = parseFunctionDefinition();
-		if (execute) {
+		if ((execute && IS_RUNTIME_PASS_SINGLE) || IS_RUNTIME_PASS_TWO_1) {
 			if (funcVar->name == TINYJS_TEMP_NAME)
 				throw new CScriptException("Functions defined at statement-level are meant to have a name.");
 			else
@@ -2638,14 +2741,13 @@ CScriptVarSmartLink CTinyJS::statement(bool &execute) {
 				delete catchScope;
 			} else {
 				bool noexecute = false;
-				this->block(noexecute);
+				block(noexecute);
 			}
 		}
 		if(l->tk == LEX_R_FINALLY) {
 			l->match(LEX_R_FINALLY);
 			bool finally_execute = true;
 			block(isThrow ? finally_execute : execute);
-			;
 		}
 	} else if (l->tk==LEX_R_THROW) {
 		int tokenStart = l->tokenStart;
@@ -2780,8 +2882,21 @@ void CTinyJS::scEval(CScriptVar *c, void *data) {
 		CScriptVarSmartLink returnVar;
 		runtimeFlags |= RUNTIME_CANBREAK | RUNTIME_CANCONTINUE;
 
-		bool execute = true;
+		SAVE_RUNTIME_PASS;
+		SET_RUNTIME_PASS_SINGLE;
 		try {
+			bool execute = true;
+			bool noexecute = false;
+			if(twoPassEval)
+			{
+				SET_RUNTIME_PASS_TWO_1;
+				do {
+					statement(noexecute);
+					while (l->tk==';') l->match(';'); // skip empty statements
+				} while (l->tk!=LEX_EOF);
+				l->reset();
+				SET_RUNTIME_PASS_TWO_2;
+			}
 			do {
 				returnVar = statement(execute);
 				while (l->tk==';') l->match(';'); // skip empty statements
@@ -2793,7 +2908,8 @@ void CTinyJS::scEval(CScriptVar *c, void *data) {
 		}
 		delete l;
 		l = oldLex;
-
+		RESTORE_RUNTIME_PASS;
+		
 		this->scopes.push_back(scEvalScope); // restore Scopes;
 		if(returnVar)
 			c->setReturnVar(returnVar->var);

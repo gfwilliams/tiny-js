@@ -140,19 +140,44 @@ enum SCRIPTVAR_FLAGS {
 									  SCRIPTVAR_NATIVE_MFNC,
 };
 enum RUNTIME_FLAGS {
-	RUNTIME_CANBREAK			= 1<<0,
-	RUNTIME_BREAK				= 1<<1,
-	RUNTIME_CANCONTINUE		= 1<<2,
-	RUNTIME_CONTINUE			= 1<<3,
-	RUNTIME_NEW					= 1<<4,
-	RUNTIME_CANTHROW			= 1<<5,
-	RUNTIME_THROW				= 1<<6,
+	RUNTIME_CANRETURN			= 1<<0,
+
+	RUNTIME_CANBREAK			= 1<<1,
+	RUNTIME_BREAK				= 1<<2,
 	RUNTIME_BREAK_MASK		= RUNTIME_CANBREAK | RUNTIME_BREAK,
+
+	RUNTIME_CANCONTINUE		= 1<<3,
+	RUNTIME_CONTINUE			= 1<<4,
 	RUNTIME_LOOP_MASK			= RUNTIME_BREAK_MASK | RUNTIME_CANCONTINUE | RUNTIME_CONTINUE,
+
+	RUNTIME_NEW					= 1<<5,
+
+	RUNTIME_CANTHROW			= 1<<6,
+	RUNTIME_THROW				= 1<<7,
 	RUNTIME_THROW_MASK		= RUNTIME_CANTHROW | RUNTIME_THROW,
+
+	RUNTIME_PASS_1				= 1<<8,
+	RUNTIME_PASS_2				= 1<<9,
+	RUNTIME_PASS_MASK			= RUNTIME_PASS_1 | RUNTIME_PASS_2,
 };
 
+#define SAVE_RUNTIME_RETURN	int old_return_runtimeFlags = runtimeFlags & RUNTIME_CANRETURN
+#define RESTORE_RUNTIME_RETURN	runtimeFlags = (runtimeFlags & ~RUNTIME_CANRETURN) | old_pass_runtimeFlags
+#define SET_RUNTIME_CANRETURN runtimeFlags |= RUNTIME_CANRETURN
+#define IS_RUNTIME_CANRETURN ((runtimeFlags & RUNTIME_CANRETURN) == RUNTIME_CANRETURN)
+
+#define SAVE_RUNTIME_PASS	int old_pass_runtimeFlags = runtimeFlags & RUNTIME_PASS_MASK
+#define RESTORE_RUNTIME_PASS	runtimeFlags = (runtimeFlags & ~RUNTIME_PASS_MASK) | old_pass_runtimeFlags
+#define SET_RUNTIME_PASS_SINGLE runtimeFlags = (runtimeFlags & ~RUNTIME_PASS_MASK)
+#define IS_RUNTIME_PASS_SINGLE ((runtimeFlags & RUNTIME_PASS_MASK) == 0)
+#define SET_RUNTIME_PASS_TWO_1 runtimeFlags = (runtimeFlags & ~RUNTIME_PASS_MASK) | RUNTIME_PASS_1
+#define IS_RUNTIME_PASS_TWO_1 ((runtimeFlags & RUNTIME_PASS_MASK) == RUNTIME_PASS_1)
+#define SET_RUNTIME_PASS_TWO_2 runtimeFlags = (runtimeFlags & ~RUNTIME_PASS_MASK) | RUNTIME_PASS_2
+#define IS_RUNTIME_PASS_TWO_2 ((runtimeFlags & RUNTIME_PASS_MASK) == RUNTIME_PASS_2)
+
 #define TINYJS_RETURN_VAR "return"
+#define TINYJS_LOKALE_VAR "__locale__"
+#define TINYJS_ANONYMOUS_VAR "__anonymous__"
 #define TINYJS_PROTOTYPE_CLASS "prototype"
 #define TINYJS_TEMP_NAME ""
 #define TINYJS_BLANK_DATA ""
@@ -187,7 +212,7 @@ public:
 
 	std::string getSubString(int pos); ///< Return a sub-string from the given position up until right now
 	CScriptLex *getSubLex(int lastPosition); ///< Return a sub-lexer from the given position up until right now
-
+	int CScriptLex::getDataPos();
 	std::string getPosition(int pos=-1); ///< Return a string representing the position in lines and columns of the character pos given
 
 protected:
@@ -215,8 +240,10 @@ public:
 	CScriptVar *var;
 	CScriptVar *owner; // pointer to the owner CScriptVar
 	struct {
-		bool owned			:1;
-		bool dontDelete	:1;
+		bool owned				:1;
+		bool dontDelete		:1;
+		bool dontEnumerable	:1;
+		bool hidden				:1;
 	};
 	CScriptVarLink(CScriptVar *var, const std::string &name = TINYJS_TEMP_NAME);
 	CScriptVarLink(const CScriptVarLink &link); ///< Copy constructor
@@ -358,7 +385,7 @@ public:
 	CScriptVarLink &operator *() { return *link; }
 	CScriptVarSmartLink &operator << (CScriptVarSmartLink &Link);
 	operator bool() { return link != 0; }
-	operator CScriptVarLink *() { return link; }
+//	operator CScriptVarLink *() { return link; }
 	CScriptVarLink *&getLink() { return link; }; 
 private:
 	CScriptVarLink *link;
@@ -366,7 +393,7 @@ private:
 
 class CTinyJS {
 public:
-	CTinyJS();
+	CTinyJS(bool TwoPass=true, bool TwoPassEval=true);
 	~CTinyJS();
 
 	void execute(const std::string &code);
@@ -421,6 +448,8 @@ public:
 
 	CScriptVar *root;   /// root of symbol table
 private:
+	bool twoPass; 
+	bool twoPassEval;
 	CScriptLex *l;             /// current lexer
 	int runtimeFlags;
 	std::vector<CScriptVar*> scopes; /// stack of scopes when parsing
@@ -449,7 +478,7 @@ private:
 	void block(bool &execute);
 	CScriptVarSmartLink statement(bool &execute);
 	// parsing utility functions
-	CScriptVarLink *parseFunctionDefinition();
+	CScriptVarSmartLink parseFunctionDefinition();
 	void parseFunctionArguments(CScriptVar *funcVar);
 
 	CScriptVarLink *findInScopes(const std::string &childName); ///< Finds a child, looking recursively up the scopes

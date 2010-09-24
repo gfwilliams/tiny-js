@@ -1464,7 +1464,6 @@ CScriptVarLink CTinyJS::evaluateComplex(const string &code) {
 		SET_RUNTIME_PASS_SINGLE;
 		if(twoPass)
 		{
-			printf("starte Pass 1\n");
 			SET_RUNTIME_PASS_TWO_1;
 			do {
 				statement(noexecute);
@@ -1472,7 +1471,6 @@ CScriptVarLink CTinyJS::evaluateComplex(const string &code) {
 			} while (l->tk!=LEX_EOF);
 			l->reset();
 			SET_RUNTIME_PASS_TWO_2;
-			printf("starte Pass 2\n");
 		}
 		do {
 			v = statement(execute);

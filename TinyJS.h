@@ -450,6 +450,7 @@ public:
 private:
 	bool twoPass; 
 	bool twoPassEval;
+	int funcOffset;
 	CScriptLex *l;             /// current lexer
 	int runtimeFlags;
 	std::vector<CScriptVar*> scopes; /// stack of scopes when parsing

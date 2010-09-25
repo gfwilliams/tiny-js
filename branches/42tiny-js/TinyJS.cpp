@@ -1407,6 +1407,7 @@ int CScriptVar::getRefs() {
 CTinyJS::CTinyJS(bool TwoPass, bool TwoPassEval) {
 	twoPass=TwoPass;
 	twoPassEval=TwoPassEval;
+	funcOffset = 0;
 	l = NULL;
 	runtimeFlags = 0;
 	root = (new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT))->ref();
@@ -1551,7 +1552,8 @@ CScriptVar *CTinyJS::addNative(const string &funcDesc) {
 
 CScriptVarSmartLink CTinyJS::parseFunctionDefinition() {
 	// actually parse a function...
-	int funcOffset = l->getDataPos();
+	int oldFuncOffset = funcOffset;
+	funcOffset = l->getDataPos();
 	l->match(LEX_R_FUNCTION);
 	string funcName = TINYJS_TEMP_NAME;
 	/* we can have functions without names */
@@ -1573,7 +1575,6 @@ CScriptVarSmartLink CTinyJS::parseFunctionDefinition() {
 		int funcBegin = l->tokenStart;
 		CScriptVar *locale = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT);
 		CScriptVarLink *anonymous_link = locale->addChild(TINYJS_ANONYMOUS_VAR, new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT));
-		CScriptVarLink *funcOffset_link = anonymous_link->var->addChild("funcOffset", new CScriptVar(funcOffset));
 		CScriptVarLink *locale_link = funcVar->var->addChild(TINYJS_LOKALE_VAR, locale);
 		locale_link->hidden = locale_link->dontEnumerable = true;
 		scopes.push_back(locale);
@@ -1585,15 +1586,15 @@ CScriptVarSmartLink CTinyJS::parseFunctionDefinition() {
 		}
 		scopes.pop_back();
 		funcVar->var->data = l->getSubString(funcBegin);
-		if(anonymous_link->var->Childs.size() == 1)
+		if(anonymous_link->var->Childs.size() == 0)
 			locale->removeLink(anonymous_link);
-		else
-			anonymous_link->var->removeLink(funcOffset_link);
 	} else {
 		int funcBegin = l->tokenStart;
 		block(noexecute);
 		funcVar->var->data = l->getSubString(funcBegin);
 	}
+	funcOffset = oldFuncOffset;
+
 	return funcVar;
 }
 
@@ -1917,10 +1918,8 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 		return new CScriptVarLink(contents);
 	}
 	if (l->tk==LEX_R_FUNCTION) {
-		CScriptVarLink *funcOffset = 0;
 		CScriptVarLink *anonymous = scopes.back()->findChild(TINYJS_ANONYMOUS_VAR);
-		if(anonymous) funcOffset = anonymous->var->findChild("funcOffset");
-		string anonymous_name = int2string(l->getDataPos()-(funcOffset?funcOffset->var->getInt():0));
+		string anonymous_name = int2string(l->getDataPos()-this->funcOffset);
 		CScriptVarSmartLink funcVar = parseFunctionDefinition();
 		this->runtimeFlags;
 //				funcName = anonymous ? int2string(l->tokenStart) : l->tkStr;

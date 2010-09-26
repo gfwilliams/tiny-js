@@ -393,7 +393,7 @@ private:
 
 class CTinyJS {
 public:
-	CTinyJS(bool TwoPass=true, bool TwoPassEval=true);
+	CTinyJS(bool TwoPass=true);
 	~CTinyJS();
 
 	void execute(const std::string &code);
@@ -449,7 +449,6 @@ public:
 	CScriptVar *root;   /// root of symbol table
 private:
 	bool twoPass; 
-	bool twoPassEval;
 	int funcOffset;
 	CScriptLex *l;             /// current lexer
 	int runtimeFlags;

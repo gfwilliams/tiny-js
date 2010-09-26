@@ -1888,8 +1888,8 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 			if (l->tk==LEX_STR) l->match(LEX_STR);
 			else l->match(LEX_ID);
 			l->match(':');
+			CScriptVarSmartLink a = assignment(execute);
 			if (execute) {
-				CScriptVarSmartLink a = assignment(execute);
 				contents->addChild(id, a->var);
 			}
 			// no need to clean here, as it will definitely be used
@@ -1905,9 +1905,9 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 		l->match('[');
 		int idx = 0;
 		while (l->tk != ']') {
-			if (execute) {
 			CScriptVarSmartLink a = assignment(execute);
-			contents->addChild(int2string(idx), a->var);
+			if (execute) {
+				contents->addChild(int2string(idx), a->var);
 			}
 			// no need to clean here, as it will definitely be used
 			if (l->tk != ']') l->match(',');

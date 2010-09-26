@@ -1404,9 +1404,8 @@ int CScriptVar::getRefs() {
 
 // ----------------------------------------------------------------------------------- CSCRIPT
 
-CTinyJS::CTinyJS(bool TwoPass, bool TwoPassEval) {
+CTinyJS::CTinyJS(bool TwoPass) {
 	twoPass=TwoPass;
-	twoPassEval=TwoPassEval;
 	funcOffset = 0;
 	l = NULL;
 	runtimeFlags = 0;
@@ -2884,7 +2883,7 @@ void CTinyJS::scEval(CScriptVar *c, void *data) {
 		try {
 			bool execute = true;
 			bool noexecute = false;
-			if(twoPassEval)
+			if(twoPass)
 			{
 				SET_RUNTIME_PASS_TWO_1;
 				do {

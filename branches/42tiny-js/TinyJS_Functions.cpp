@@ -53,9 +53,13 @@
 using namespace std;
 // ----------------------------------------------- Actual Functions
 
-void scTrace(CScriptVar *UNUSED(c), void * userdata) {
+void scTrace(CScriptVar *c, void * userdata) {
 	CTinyJS *js = (CTinyJS*)userdata;
-	js->root->trace();
+	c=c->getParameter(0);
+	if(c->isUndefined())
+		js->root->trace("root");
+	else
+		c->trace();
 }
 
 void scObjectDump(CScriptVar *c, void *) {

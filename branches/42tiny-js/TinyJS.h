@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 
 #ifndef __GNUC__
 #	define __attribute__(x)
@@ -178,6 +179,7 @@ enum RUNTIME_FLAGS {
 #define TINYJS_RETURN_VAR "return"
 #define TINYJS_LOKALE_VAR "__locale__"
 #define TINYJS_ANONYMOUS_VAR "__anonymous__"
+#define TINYJS_ARGUMENTS_VAR "arguments"
 #define TINYJS_PROTOTYPE_CLASS "prototype"
 #define TINYJS_TEMP_NAME ""
 #define TINYJS_BLANK_DATA ""
@@ -252,6 +254,19 @@ public:
 	void replaceWith(CScriptVarLink *newVar); ///< Replace the Variable pointed to (just dereferences)
 };
 
+typedef std::vector<CScriptVar *> RECURSION_VECT;
+typedef std::set<CScriptVar *> RECURSION_SET;
+class RECURSION_SET_VAR
+{
+public:
+	RECURSION_SET_VAR(CScriptVar *PathBase) : sumRefs(0), sumInternalRefs(0), recursionPathBase(PathBase) {}
+	RECURSION_SET recursionSet;		///< contains all Vars in the Set
+	int sumRefs;							///< Sum of Refs
+	int sumInternalRefs;					///< Sum of Internal Refs --> sumRefs - sumInternalRefs = sumExternalRefs
+	CScriptVar *recursionPathBase;	///< temporary used in recoursionCheck() and trace()
+};
+
+
 class NativeFncBase;
 typedef	std::map<std::string,CScriptVarLink*> SCRIPTVAR_CHILDS;
 /// Variable class (containing a doubly-linked list of children)
@@ -270,6 +285,7 @@ public:
 	CScriptVar *getReturnVar(); ///< If this is a function, get the result value (for use by native functions)
 	void setReturnVar(CScriptVar *var); ///< Set the result value. Use this when setting complex return data as it avoids a deepCopy()
 	CScriptVar *getParameter(const std::string &name); ///< If this is a function, get the parameter with the given name (for use by native functions)
+	CScriptVar *getParameter(int Idx); ///< If this is a function, get the parameter with the given index (for use by native functions)
 
 	CScriptVarLink *findChild(const std::string &childName); ///< Tries to find a child with the given name, may return 0
 	CScriptVarLink *findChildOrCreate(const std::string &childName, int varFlags=SCRIPTVAR_UNDEFINED); ///< Tries to find a child with the given name, or will create it with the given flags
@@ -315,7 +331,8 @@ public:
 	void copyValue(CScriptVar *val); ///< copy the value from the value given
 	CScriptVar *deepCopy(); ///< deep copy this node and return the result
 
-	void trace(std::string indentStr = "", const std::string &name = ""); ///< Dump out the contents of this using trace
+	void trace(const std::string &name = ""); ///< Dump out the contents of this using trace
+	void trace(std::string &indentStr, const std::string &name = ""); ///< Dump out the contents of this using trace
 	std::string getFlagsAsString(); ///< For debugging - just dump a string version of the flags
 	void getJSON(std::ostringstream &destination, const std::string linePrefix=""); ///< Write out all the JS code needed to recreate this script variable to the stream (as JSON)
 	void setCallback(JSCallback callback, void *userdata);
@@ -324,11 +341,15 @@ public:
 	SCRIPTVAR_CHILDS Childs;
 
 	/// For memory management/garbage collection
+	void recoursionCheck(CScriptVar *Owner=0);
 	CScriptVar *ref(); ///< Add reference to this variable
-	void unref(); ///< Remove a reference, and delete this variable if required
+	void unref(CScriptVar* Owner); ///< Remove a reference, and delete this variable if required
 	int getRefs(); ///< Get the number of references to this script variable
+private: 
+	RECURSION_SET_VAR *unrefInternal();
 protected:
 	int refs; ///< The number of references held to this - used for garbage collection
+	int internalRefs;
 	CScriptVarLink *__proto__;
 	std::string data; ///< The contents of this variable if it is a string
 	long intData; ///< The contents of this variable if it is an int
@@ -336,8 +357,8 @@ protected:
 	int flags; ///< the flags determine the type of the variable - int/double/string/etc
 	union
 	{
-	JSCallback jsCallback; ///< Callback for native functions
-	NativeFncBase *jsCallbackClass; ///< Wrapper for Class-Member-Functions as Callback for native functions
+		JSCallback jsCallback; ///< Callback for native functions
+		NativeFncBase *jsCallbackClass; ///< Wrapper for Class-Member-Functions as Callback for native functions
 	};
 	void *jsCallbackUserData; ///< user data passed as second argument to native functions
 
@@ -346,7 +367,9 @@ protected:
 	/** Copy the basic data and flags from the variable given, with no
 		* children. Should be used internally only - by copyValue and deepCopy */
 	void copySimpleData(CScriptVar *val);
-
+	void recoursionCheck(RECURSION_VECT &recursionPath);
+	int recursionFlag;
+	RECURSION_SET_VAR *recursionSet;
 	friend class CTinyJS;
 };
 

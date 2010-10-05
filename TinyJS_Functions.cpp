@@ -55,11 +55,10 @@ using namespace std;
 
 void scTrace(CScriptVar *c, void * userdata) {
 	CTinyJS *js = (CTinyJS*)userdata;
-	c=c->getParameter(0);
-	if(c->isUndefined())
-		js->root->trace("root");
+	if(c->getParameterLength())
+		c->getParameter(0)->trace();
 	else
-		c->trace();
+		js->root->trace("root");
 }
 
 void scObjectDump(CScriptVar *c, void *) {

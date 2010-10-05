@@ -286,7 +286,7 @@ public:
 	void setReturnVar(CScriptVar *var); ///< Set the result value. Use this when setting complex return data as it avoids a deepCopy()
 	CScriptVar *getParameter(const std::string &name); ///< If this is a function, get the parameter with the given name (for use by native functions)
 	CScriptVar *getParameter(int Idx); ///< If this is a function, get the parameter with the given index (for use by native functions)
-
+	int getParameterLength(); ///< If this is a function, get the count of parameters
 	CScriptVarLink *findChild(const std::string &childName); ///< Tries to find a child with the given name, may return 0
 	CScriptVarLink *findChildOrCreate(const std::string &childName, int varFlags=SCRIPTVAR_UNDEFINED); ///< Tries to find a child with the given name, or will create it with the given flags
 	CScriptVarLink *findChildOrCreateByPath(const std::string &path); ///< Tries to find a child with the given path (separated by dots)
@@ -479,7 +479,7 @@ private:
 	CScriptVar *stringClass; /// Built in string class
 	CScriptVar *objectClass; /// Built in object class
 	CScriptVar *arrayClass; /// Built in array class
-	CScriptVar *exeption; /// containing the exeption var by (runtimeFlags&RUNTIME_THROW) == true; 
+	CScriptVar *exceptionVar; /// containing the exception var by (runtimeFlags&RUNTIME_THROW) == true; 
 	void CheckRightHandVar(bool &execute, CScriptVarSmartLink &link, int pos=-1)
 	{
 		if(execute && link && !link->owned && !link->owner && link->name.length()>0)

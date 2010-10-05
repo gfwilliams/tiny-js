@@ -1,0 +1,25 @@
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Script", "Script.vcxproj", "{70D538BA-867B-4564-8DEE-F2C78C5AD4C8}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "lib-tiny-js", "lib-tiny-js.vcxproj", "{9751C465-0294-43CD-A5D9-BD038ABA3961}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Release|Win32 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{70D538BA-867B-4564-8DEE-F2C78C5AD4C8}.Debug|Win32.ActiveCfg = Debug|Win32
+		{70D538BA-867B-4564-8DEE-F2C78C5AD4C8}.Debug|Win32.Build.0 = Debug|Win32
+		{70D538BA-867B-4564-8DEE-F2C78C5AD4C8}.Release|Win32.ActiveCfg = Release|Win32
+		{70D538BA-867B-4564-8DEE-F2C78C5AD4C8}.Release|Win32.Build.0 = Release|Win32
+		{9751C465-0294-43CD-A5D9-BD038ABA3961}.Debug|Win32.ActiveCfg = Debug|Win32
+		{9751C465-0294-43CD-A5D9-BD038ABA3961}.Debug|Win32.Build.0 = Debug|Win32
+		{9751C465-0294-43CD-A5D9-BD038ABA3961}.Release|Win32.ActiveCfg = Release|Win32
+		{9751C465-0294-43CD-A5D9-BD038ABA3961}.Release|Win32.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

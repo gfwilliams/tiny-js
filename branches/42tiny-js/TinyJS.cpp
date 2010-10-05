@@ -25,7 +25,7 @@
 
 /* Version 0.1  :	(gw) First published on Google Code
 	Version 0.11 :	Making sure the 'root' variable never changes
-						'symbol_base' added for the current base of the sybmbol table
+						'symbol_base' added for the current base of the symbol table
 	Version 0.12 :	Added findChildOrCreate, changed string passing to use references
 						Fixed broken string encoding in getJSString()
 						Removed getInitCode and added getJSON instead
@@ -96,7 +96,7 @@
 					Added break and continue statements for loops
 	R4				Changed "owned"-member of CScriptVarLink from bool to a pointer of CScriptVarowned
 					Added some Visual Studio Preprocessor stuff
-					Added now alowed stuff like this (function (v) {print(v);})(12);
+					Added now allowed stuff like this (function (v) {print(v);})(12);
 					Remove unneeded and wrong deepCopy by assignment operator '='
 
 
@@ -912,6 +912,10 @@ CScriptVar *CScriptVar::getParameter(int Idx) {
 	CScriptVar *arguments = findChildOrCreate(TINYJS_ARGUMENTS_VAR)->var;
 	return arguments->findChildOrCreate(int2string(Idx))->var;
 }
+int CScriptVar::getParameterLength() {
+	CScriptVar *arguments = findChildOrCreate(TINYJS_ARGUMENTS_VAR)->var;
+	return arguments->findChildOrCreate("length")->var->getInt();
+}
 
 
 CScriptVarLink *CScriptVar::findChild(const string &childName) {
@@ -1388,7 +1392,7 @@ string CScriptVar::getVarType() {
 		return "string";
 	else if(this->isUndefined())
 		return "undefined";
-	return "object"; // Objcect / Array / null
+	return "object"; // Object / Array / null
 }
 
 void CScriptVar::getJSON(ostringstream &destination, const string linePrefix) {
@@ -1468,7 +1472,6 @@ RECURSION_SET_VAR *CScriptVar::unrefInternal(){
 void CScriptVar::unref(CScriptVar* Owner) {
 	refs--;
 	ASSERT(refs>=0); // printf("OMFG, we have unreffed too far!\n");
-#if 1
 	if(recursionSet) { // this Var is in a Set
 		recursionSet->sumRefs--;
 		if(Owner && Owner->recursionSet == recursionSet) { // internal Ref
@@ -1477,13 +1480,13 @@ void CScriptVar::unref(CScriptVar* Owner) {
 					RECURSION_SET_VAR *old_set = unrefInternal();
 
 					if(old_set) { // we have breaked a recursion bu the recursion Set is not destroyed
-						// we needs a rededection of recursions for all Vars in the Set;
+						// we needs a redetection of recursions for all Vars in the Set;
 						// first we destroy the Set
 						for(RECURSION_SET::iterator it= old_set->recursionSet.begin(); it!=old_set->recursionSet.end(); ++it) {
 							(*it)->internalRefs = 0;
 							(*it)->recursionSet = 0;
 						}
-						// now we can rededect recursions
+						// now we can redetect recursions
 						for(RECURSION_SET::iterator it= old_set->recursionSet.begin(); it!=old_set->recursionSet.end(); ++it) {
 							if((*it)->recursionSet == 0)
 								(*it)->recoursionCheck();
@@ -1515,9 +1518,7 @@ void CScriptVar::unref(CScriptVar* Owner) {
 			} // otherwise nothing to do
 		}
 	}
-	else 
-#endif
-		if (refs==0) {
+	else if (refs==0) {
 		delete this;
 	}
 }
@@ -1553,14 +1554,14 @@ void CScriptVar::recoursionCheck(RECURSION_VECT &recursionPath)
 			new_set->sumInternalRefs++;	// one internal
 			this->internalRefs++;			// new internal reference found
 			// find the Var of the Set tat is in the Path 
-			// +1, because the Set is allready in the new Set
+			// +1, because the Set is already in the new Set
 			it = find_last(recursionPath, recursionSet->recursionPathBase)+1;
 		} else {													// recursion starts by a Var
 			new_set = new RECURSION_SET_VAR(this);	// create a new Set(marks it as "in the Path", with "this as start Var)
 			// find the Var in the Path
 			it = find_last(recursionPath, this);
 		}
-		// insert the Path begining by this Var or the next Var after dis Set
+		// insert the Path beginning by this Var or the next Var after dis Set
 		// in the new_set and removes it from the Path
 		for(; it!= recursionPath.end(); ++it) {
 			if((*it)->recursionSet) {											// insert an existing Set
@@ -1568,7 +1569,7 @@ void CScriptVar::recoursionCheck(RECURSION_VECT &recursionPath)
 				new_set->sumInternalRefs += old_set->sumInternalRefs;	// for speed up; we adds the sum of internal refs and the sum of
 				new_set->sumRefs += old_set->sumRefs;						// refs to the new Set here instead rather than separately for each Var
 				new_set->sumInternalRefs++;									// a new Set in a Set is linked 
-				(*it)->internalRefs++;											// over an internale reference
+				(*it)->internalRefs++;											// over an internal reference
 				// insert all Vars of the old Set in the new Set
 				for(RECURSION_SET::iterator set_it = old_set->recursionSet.begin(); set_it!= old_set->recursionSet.end(); ++set_it) {
 					new_set->recursionSet.insert(*set_it);	// insert this Var to the Set
@@ -1577,7 +1578,7 @@ void CScriptVar::recoursionCheck(RECURSION_VECT &recursionPath)
 				delete old_set;
 			} else {											// insert this Var in the new set
 				new_set->sumInternalRefs++;			// a new Var in a Set is linked 
-				(*it)->internalRefs++;					// over an internale reference
+				(*it)->internalRefs++;					// over an internal reference
 				new_set->sumRefs += (*it)->refs;		// adds the Var refs to the Set refs
 				new_set->recursionSet.insert(*it);	// insert this Var to the Set
 				(*it)->recursionSet = new_set;		// the Var is now in a Set
@@ -1593,7 +1594,7 @@ void CScriptVar::recoursionCheck(RECURSION_VECT &recursionPath)
 		recursionSet->recursionPathBase = this;		// of all Vars in the Set is "this" in the Path
 		RECURSION_SET_VAR *old_set = recursionSet;
 		// a recursionSet is like an one&only Var 
-		// goes to all Cilds of the Set
+		// goes to all Childs of the Set
 		RECURSION_SET Set(recursionSet->recursionSet);
 		for(RECURSION_SET::iterator set_it = Set.begin(); set_it != Set.end(); ++set_it) {
 			for(SCRIPTVAR_CHILDS::iterator it = (*set_it)->Childs.begin(); it != (*set_it)->Childs.end(); ++it) {
@@ -1601,22 +1602,22 @@ void CScriptVar::recoursionCheck(RECURSION_VECT &recursionPath)
 					it->second->var->recoursionCheck(recursionPath);
 			}
 		}
-		if(old_set == recursionSet) { // old_set == recursionSet meens this Set is *not* included in an other Set
+		if(old_set == recursionSet) { // old_set == recursionSet means this Set is *not* included in an other Set
 			recursionSet->recursionPathBase = 0;
 			recursionPath.pop_back();
-		} // otherwise this Set is included in an other Set and is allready removed from Path
+		} // otherwise this Set is included in an other Set and is already removed from Path
 	} else {
 		recursionPath.push_back(this);	// push "this" in the Path
 		recursionFlag = 1;									// marked this Var as "the Var is in the Path"
-		// goes to all Cilds of the Var
+		// goes to all Childs of the Var
 		for(SCRIPTVAR_CHILDS::iterator it = Childs.begin(); it != Childs.end(); ++it) {
 			it->second->var->recoursionCheck(recursionPath);
 		}
-		if(recursionFlag) { // recursionFlag!=0 meens this Var is not included in a Set
+		if(recursionFlag) { // recursionFlag!=0 means this Var is not included in a Set
 			recursionFlag = 0;
 			ASSERT(recursionPath.back() == this);
 			recursionPath.pop_back();
-		} else { // otherwise this Var is included in a Set and is allready removed from Path
+		} else { // otherwise this Var is included in a Set and is already removed from Path
 			ASSERT(recursionSet && recursionSet->recursionPathBase);
 			if(recursionSet->recursionPathBase == this) { // the Var is the Base of the Set
 				recursionSet->recursionPathBase = 0;
@@ -1643,8 +1644,8 @@ CTinyJS::CTinyJS(bool TwoPass) {
 	root->addChild("String", stringClass);
 	root->addChild("Array", arrayClass);
 	root->addChild("Object", objectClass);
-	exeption = NULL;
-	addNative("function eval(jsCode)", this, &CTinyJS::scEval); // execute the given string and return the resul
+	exceptionVar = NULL;
+	addNative("function eval(jsCode)", this, &CTinyJS::scEval); // execute the given string and return the result
 }
 
 CTinyJS::~CTinyJS() {
@@ -1662,7 +1663,7 @@ CTinyJS::~CTinyJS() {
 
 void CTinyJS::throwError(bool &execute, const string &message, int pos /*=-1*/) {
 	if(execute && (runtimeFlags & RUNTIME_CANTHROW)) {
-		exeption = (new CScriptVar(message))->ref();
+		exceptionVar = (new CScriptVar(message))->ref();
 		runtimeFlags |= RUNTIME_THROW;
 		execute = false;
 		return;
@@ -1946,7 +1947,7 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 					// setup a return variable
 					CScriptVarSmartLink returnVar;
 					if(execute) {
-						int old_function_runtimeFlags = runtimeFlags; // save runtimFlags
+						int old_function_runtimeFlags = runtimeFlags; // save runtimeFlags
 						runtimeFlags &= ~RUNTIME_LOOP_MASK; // clear LOOP-Flags
 						// execute function!
 						// add the function's execute space to the symbol table so we can recurse
@@ -1987,10 +1988,10 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 									if(runtimeFlags & RUNTIME_CANTHROW) {
 										runtimeFlags |= RUNTIME_THROW;
 										execute = false;
-										this->exeption = e->var->ref();
+										this->exceptionVar = e->var->ref();
 									}
 									else
-										throw new CScriptException("uncaught exeption: '"+e->var->getString()+"' in: "+a->name+"()");
+										throw new CScriptException("uncaught exception: '"+e->var->getString()+"' in: "+a->name+"()");
 								}
 							} else {
 								/* we just want to execute the block, but something could
@@ -2148,7 +2149,7 @@ CScriptVarSmartLink CTinyJS::factor(bool &execute) {
 		this->runtimeFlags;
 //				funcName = anonymous ? int2string(l->tokenStart) : l->tkStr;
 
-		funcVar->name = TINYJS_TEMP_NAME; // allways anonymous
+		funcVar->name = TINYJS_TEMP_NAME; // always anonymous
 		if(IS_RUNTIME_PASS_TWO_1)
 		{
 			CScriptVarLink *anonymous = scopes.back()->findChildOrCreate(TINYJS_ANONYMOUS_VAR, SCRIPTVAR_OBJECT);
@@ -2943,13 +2944,13 @@ CScriptVarSmartLink CTinyJS::statement(bool &execute) {
 		{
 			l->match(LEX_R_CATCH);
 			l->match('(');
-			string exeption_var_name = l->tkStr;
+			string exception_var_name = l->tkStr;
 			l->match(LEX_ID);
 			l->match(')');
 			if(isThrow) {
 				CScriptVar *catchScope = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT);
-				catchScope->addChild(exeption_var_name, exeption);
-				exeption->unref(0); exeption = 0;
+				catchScope->addChild(exception_var_name, exceptionVar);
+				exceptionVar->unref(0); exceptionVar = 0;
 				scopes.push_back(catchScope);
 				try {
 					block(execute);
@@ -2978,10 +2979,10 @@ CScriptVarSmartLink CTinyJS::statement(bool &execute) {
 			if(runtimeFlags & RUNTIME_CANTHROW) {
 				runtimeFlags |= RUNTIME_THROW;
 				execute = false;
-				exeption = a->var->ref();
+				exceptionVar = a->var->ref();
 			}
 			else
-				throw new CScriptException("uncaught exeption: '"+a->var->getString()+"'", tokenStart);
+				throw new CScriptException("uncaught exception: '"+a->var->getString()+"'", tokenStart);
 		}
 	} else if (l->tk==LEX_R_SWITCH) {
 		l->match(LEX_R_SWITCH);
@@ -3135,10 +3136,10 @@ void CTinyJS::scEval(CScriptVar *c, void *data) {
 		if(returnVar)
 			c->setReturnVar(returnVar->var);
 
-		// check of exeptions
-		int exeption = runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE);
+		// check of exceptions
+		int exceptionState = runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE);
 		runtimeFlags &= ~RUNTIME_LOOP_MASK;
-		if(exeption) throw new CScriptEvalException(exeption);
+		if(exceptionState) throw new CScriptEvalException(exceptionState);
 
 	} catch (CScriptException *e) {
 		scopes.push_back(scEvalScope); // restore Scopes;

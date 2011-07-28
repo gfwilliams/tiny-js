@@ -182,6 +182,8 @@ public:
   ~CScriptVarLink();
   void replaceWith(CScriptVar *newVar); ///< Replace the Variable pointed to
   void replaceWith(CScriptVarLink *newVar); ///< Replace the Variable pointed to (just dereferences)
+  int getIntName(); ///< Get the name as an integer (for arrays)
+  void setIntName(int n); ///< Set the name as an integer (for arrays)
 };
 
 /// Variable class (containing a doubly-linked list of children)
@@ -221,6 +223,8 @@ public:
     void setDouble(double val);
     void setString(const std::string &str);
     void setUndefined();
+    void setArray();
+    bool equals(CScriptVar *v);
 
     bool isInt() { return (flags&SCRIPTVAR_INTEGER)!=0; }
     bool isDouble() { return (flags&SCRIPTVAR_DOUBLE)!=0; }

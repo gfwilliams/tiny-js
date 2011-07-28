@@ -81,6 +81,12 @@
                      statements and then only return the value from the last one.
                      Also checks to make sure *everything* was parsed.
                    Ints + doubles are now stored in binary form (faster + more precise)
+   Version 0.24 :  More useful error for maths ops
+                   Don't dump everything on a match error.
+   Version 0.25 :  Better string escaping
+   Version 0.26 :  Add CScriptVar::equals
+                   Add built-in array functions
+
 
     NOTE: This doesn't support constructors for objects
           Recursive loops of data such as a.foo = a; fail to be garbage collected
@@ -229,8 +235,17 @@ std::string getJSString(const std::string &str) {
       switch (nStr[i]) {
         case '\\': replaceWith = "\\\\"; break;
         case '\n': replaceWith = "\\n"; break;
+        case '\r': replaceWith = "\\r"; break;
+        case '\a': replaceWith = "\\a"; break;
         case '"': replaceWith = "\\\""; break;
-        default: replace=false;
+        default: {
+          int nCh = ((int)nStr[i]) &0xFF;
+          if (nCh<32 || nCh>127) {
+            char buffer[5];
+            sprintf_s(buffer, 5, "\\x%02X", nCh);
+            replaceWith = buffer;
+          } else replace=false;
+        }
       }
 
       if (replace) {
@@ -297,7 +312,7 @@ void CScriptLex::match(int expected_tk) {
     if (tk!=expected_tk) {
         ostringstream errorString;
         errorString << "Got " << getTokenStr(tk) << " expected " << getTokenStr(expected_tk)
-         << " at " << getPosition(tokenStart) << " in '" << data << "'";
+         << " at " << getPosition(tokenStart);
         throw new CScriptException(errorString.str());
     }
     getNextToken();
@@ -431,7 +446,7 @@ void CScriptLex::getNextToken() {
             }
         }
         // do fancy e-style floating point
-        if (!isHex && currCh=='e') {
+        if (!isHex && (currCh=='e'||currCh=='E')) {
           tk = LEX_FLOAT;
           tkStr += currCh; getNextCh();
           if (currCh=='-') { tkStr += currCh; getNextCh(); }
@@ -466,9 +481,26 @@ void CScriptLex::getNextToken() {
                 getNextCh();
                 switch (currCh) {
                 case 'n' : tkStr += '\n'; break;
+                case 'a' : tkStr += '\a'; break;
+                case 'r' : tkStr += '\r'; break;
+                case 't' : tkStr += '\t'; break;
                 case '\'' : tkStr += '\''; break;
                 case '\\' : tkStr += '\\'; break;
-                default: tkStr += currCh;
+                case 'x' : { // hex digits
+                              char buf[3] = "??";
+                              getNextCh(); buf[0] = currCh;
+                              getNextCh(); buf[1] = currCh;
+                              tkStr += (char)strtol(buf,0,16);
+                           } break;
+                default: if (currCh>='0' && currCh<='7') {
+                           // octal digits
+                           char buf[4] = "???";
+                           buf[0] = currCh;
+                           getNextCh(); buf[1] = currCh;
+                           getNextCh(); buf[2] = currCh;
+                           tkStr += (char)strtol(buf,0,8);
+                         } else
+                           tkStr += currCh;
                 }
             } else {
                 tkStr += currCh;
@@ -636,6 +668,15 @@ void CScriptVarLink::replaceWith(CScriptVarLink *newVar) {
       replaceWith(newVar->var);
     else
       replaceWith(new CScriptVar());
+}
+
+int CScriptVarLink::getIntName() {
+    return atoi(name.c_str());
+}
+void CScriptVarLink::setIntName(int n) {
+    char sIdx[64];
+    sprintf_s(sIdx, sizeof(sIdx), "%d", n);
+    name = sIdx;
 }
 
 // ----------------------------------------------------------------------------------- CSCRIPTVAR
@@ -941,6 +982,22 @@ void CScriptVar::setUndefined() {
     removeAllChildren();
 }
 
+void CScriptVar::setArray() {
+    // name sure it's not still a number or integer
+    flags = (flags&~SCRIPTVAR_VARTYPEMASK) | SCRIPTVAR_ARRAY;
+    data = TINYJS_BLANK_DATA;
+    intData = 0;
+    doubleData = 0;
+    removeAllChildren();
+}
+
+bool CScriptVar::equals(CScriptVar *v) {
+    CScriptVar *resV = mathsOp(v, LEX_EQUAL);
+    bool res = resV->getBool();
+    delete resV;
+    return res;
+}
+
 CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
     CScriptVar *a = this;
     // Type equality check
@@ -980,7 +1037,7 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
                 case LEX_LEQUAL:    return new CScriptVar(da<=db);
                 case '>':     return new CScriptVar(da>db);
                 case LEX_GEQUAL:    return new CScriptVar(da>=db);
-                default: throw new CScriptException("This operation not supported on the Int datatype");
+                default: throw new CScriptException("Operation "+CScriptLex::getTokenStr(op)+" not supported on the Int datatype");
             }
         } else {
             // use doubles
@@ -997,7 +1054,7 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
                 case LEX_LEQUAL:    return new CScriptVar(da<=db);
                 case '>':     return new CScriptVar(da>db);
                 case LEX_GEQUAL:    return new CScriptVar(da>=db);
-                default: throw new CScriptException("This operation not supported on the Double datatype");
+                default: throw new CScriptException("Operation "+CScriptLex::getTokenStr(op)+" not supported on the Double datatype");
             }
         }
     } else if (a->isArray()) {
@@ -1005,14 +1062,14 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
       switch (op) {
            case LEX_EQUAL: return new CScriptVar(a==b);
            case LEX_NEQUAL: return new CScriptVar(a!=b);
-           default: throw new CScriptException("This operation not supported on the Array datatype");
+           default: throw new CScriptException("Operation "+CScriptLex::getTokenStr(op)+" not supported on the Array datatype");
       }
     } else if (a->isObject()) {
           /* Just check pointers */
           switch (op) {
                case LEX_EQUAL: return new CScriptVar(a==b);
                case LEX_NEQUAL: return new CScriptVar(a!=b);
-               default: throw new CScriptException("This operation not supported on the Object datatype");
+               default: throw new CScriptException("Operation "+CScriptLex::getTokenStr(op)+" not supported on the Object datatype");
           }
     } else {
        string da = a->getString();
@@ -1026,7 +1083,7 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
            case LEX_LEQUAL:    return new CScriptVar(da<=db);
            case '>':     return new CScriptVar(da>db);
            case LEX_GEQUAL:    return new CScriptVar(da>=db);
-           default: throw new CScriptException("This operation not supported on the string datatype");
+           default: throw new CScriptException("Operation "+CScriptLex::getTokenStr(op)+" not supported on the string datatype");
        }
     }
     ASSERT(0);

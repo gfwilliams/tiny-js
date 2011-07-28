@@ -30,7 +30,6 @@
 
 using namespace std;
 // ----------------------------------------------- Actual Functions
-
 void scTrace(CScriptVar *c, void *userdata) {
     CTinyJS *js = (CTinyJS*)userdata;
     js->root->trace();
@@ -94,6 +93,24 @@ void scStringCharAt(CScriptVar *c, void *) {
       c->getReturnVar()->setString("");
 }
 
+void scStringSplit(CScriptVar *c, void *) {
+    string str = c->getParameter("this")->getString();
+    string sep = c->getParameter("separator")->getString();
+    CScriptVar *result = c->getReturnVar();
+    result->setArray();
+    int length = 0;
+
+    size_t pos = str.find(sep);
+    while (pos != string::npos) {
+      result->setArrayIndex(length++, new CScriptVar(str.substr(0,pos)));
+      str = str.substr(pos+1);
+      pos = str.find(sep);
+    }
+
+    if (str.size()>0)
+      result->setArrayIndex(length++, new CScriptVar(str));
+}
+
 void scIntegerParseInt(CScriptVar *c, void *) {
     string str = c->getParameter("str")->getString();
     int val = strtol(str.c_str(),0,0);
@@ -121,6 +138,62 @@ void scEval(CScriptVar *c, void *data) {
     c->setReturnVar(tinyJS->evaluateComplex(str).var);
 }
 
+void scArrayContains(CScriptVar *c, void *data) {
+  CScriptVar *obj = c->getParameter("obj");
+  CScriptVarLink *v = c->getParameter("this")->firstChild;
+
+  bool contains = false;
+  while (v) {
+      if (v->var->equals(obj)) {
+        contains = true;
+        break;
+      }
+      v = v->nextSibling;
+  }
+
+  c->getReturnVar()->setInt(contains);
+}
+
+void scArrayRemove(CScriptVar *c, void *data) {
+  CScriptVar *obj = c->getParameter("obj");
+  vector<int> removedIndices;
+  CScriptVarLink *v;
+  // remove
+  v = c->getParameter("this")->firstChild;
+  while (v) {
+      if (v->var->equals(obj)) {
+        removedIndices.push_back(v->getIntName());
+      }
+      v = v->nextSibling;
+  }
+  // renumber
+  v = c->getParameter("this")->firstChild;
+  while (v) {
+      int n = v->getIntName();
+      int newn = n;
+      for (size_t i=0;i<removedIndices.size();i++)
+        if (n>=removedIndices[i])
+          newn--;
+      if (newn!=n)
+        v->setIntName(newn);
+      v = v->nextSibling;
+  }
+}
+
+void scArrayJoin(CScriptVar *c, void *data) {
+  string sep = c->getParameter("separator")->getString();
+  CScriptVar *arr = c->getParameter("this");
+
+  ostringstream sstr;
+  int l = arr->getArrayLength();
+  for (int i=0;i<l;i++) {
+    if (i>0) sstr << sep;
+    sstr << arr->getArrayIndex(i)->getString();
+  }
+
+  c->getReturnVar()->setString(sstr.str());
+}
+
 // ----------------------------------------------- Register Functions
 void registerFunctions(CTinyJS *tinyJS) {
     tinyJS->addNative("function eval(jsCode)", scEval, tinyJS); // execute the given string and return the result
@@ -133,9 +206,13 @@ void registerFunctions(CTinyJS *tinyJS) {
     tinyJS->addNative("function String.indexOf(search)", scStringIndexOf, 0); // find the position of a string in a string, -1 if not
     tinyJS->addNative("function String.substring(lo,hi)", scStringSubstring, 0);
     tinyJS->addNative("function String.charAt(pos)", scStringCharAt, 0);
+    tinyJS->addNative("function String.split(separator)", scStringSplit, 0);
     tinyJS->addNative("function Integer.parseInt(str)", scIntegerParseInt, 0); // string to int
     tinyJS->addNative("function Integer.valueOf(str)", scIntegerValueOf, 0); // value of a single character
     tinyJS->addNative("function JSON.stringify(obj, replacer)", scJSONStringify, 0); // convert to JSON. replacer is ignored at the moment
     // JSON.parse is left out as you can (unsafely!) use eval instead
+    tinyJS->addNative("function Array.contains(obj)", scArrayContains, 0);
+    tinyJS->addNative("function Array.remove(obj)", scArrayRemove, 0);
+    tinyJS->addNative("function Array.join(separator)", scArrayJoin, 0);
 }
 

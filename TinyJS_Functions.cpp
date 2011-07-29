@@ -93,6 +93,15 @@ void scStringCharAt(CScriptVar *c, void *) {
       c->getReturnVar()->setString("");
 }
 
+void scStringCharCodeAt(CScriptVar *c, void *) {
+    string str = c->getParameter("this")->getString();
+    int p = c->getParameter("pos")->getInt();
+    if (p>=0 && p<(int)str.length())
+      c->getReturnVar()->setInt(str.at(p));
+    else
+      c->getReturnVar()->setInt(0);
+}
+
 void scStringSplit(CScriptVar *c, void *) {
     string str = c->getParameter("this")->getString();
     string sep = c->getParameter("separator")->getString();
@@ -109,6 +118,13 @@ void scStringSplit(CScriptVar *c, void *) {
 
     if (str.size()>0)
       result->setArrayIndex(length++, new CScriptVar(str));
+}
+
+void scStringFromCharCode(CScriptVar *c, void *) {
+    char str[2];
+    str[0] = c->getParameter("char")->getInt();
+    str[1] = 0;
+    c->getReturnVar()->setString(str);
 }
 
 void scIntegerParseInt(CScriptVar *c, void *) {
@@ -206,6 +222,8 @@ void registerFunctions(CTinyJS *tinyJS) {
     tinyJS->addNative("function String.indexOf(search)", scStringIndexOf, 0); // find the position of a string in a string, -1 if not
     tinyJS->addNative("function String.substring(lo,hi)", scStringSubstring, 0);
     tinyJS->addNative("function String.charAt(pos)", scStringCharAt, 0);
+    tinyJS->addNative("function String.charCodeAt(pos)", scStringCharCodeAt, 0);
+    tinyJS->addNative("function String.fromCharCode(char)", scStringFromCharCode, 0);
     tinyJS->addNative("function String.split(separator)", scStringSplit, 0);
     tinyJS->addNative("function Integer.parseInt(str)", scIntegerParseInt, 0); // string to int
     tinyJS->addNative("function Integer.valueOf(str)", scIntegerValueOf, 0); // value of a single character

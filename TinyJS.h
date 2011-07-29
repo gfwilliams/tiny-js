@@ -26,6 +26,9 @@
 #ifndef TINYJS_H
 #define TINYJS_H
 
+// If defined, this keeps a note of all calls and where from in memory. This is slower, but good for debugging
+#define TINYJS_CALL_STACK
+
 #ifdef _WIN32
 #ifdef _DEBUG
 #define _CRTDBG_MAP_ALLOC
@@ -39,6 +42,7 @@
 #ifndef TRACE
 #define TRACE printf
 #endif // TRACE
+
 
 const int TINYJS_LOOP_MAX_ITERATIONS = 8192;
 
@@ -58,6 +62,7 @@ enum LEX_TYPES {
     LEX_LSHIFTEQUAL,
     LEX_GEQUAL,
     LEX_RSHIFT,
+    LEX_RSHIFTUNSIGNED,
     LEX_RSHIFTEQUAL,
     LEX_PLUSEQUAL,
     LEX_MINUSEQUAL,
@@ -319,6 +324,10 @@ public:
 private:
     CScriptLex *l;             /// current lexer
     std::vector<CScriptVar*> scopes; /// stack of scopes when parsing
+#ifdef TINYJS_CALL_STACK
+    std::vector<std::string> call_stack; /// Names of places called so we can show when erroring
+#endif
+
     CScriptVar *stringClass; /// Built in string class
     CScriptVar *objectClass; /// Built in object class
     CScriptVar *arrayClass; /// Built in array class
@@ -328,8 +337,10 @@ private:
     CScriptVarLink *unary(bool &execute);
     CScriptVarLink *term(bool &execute);
     CScriptVarLink *expression(bool &execute);
+    CScriptVarLink *shift(bool &execute);
     CScriptVarLink *condition(bool &execute);
     CScriptVarLink *logic(bool &execute);
+    CScriptVarLink *ternary(bool &execute);
     CScriptVarLink *base(bool &execute);
     void block(bool &execute);
     void statement(bool &execute);

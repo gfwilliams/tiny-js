@@ -88,14 +88,18 @@
                    Add built-in array functions
    Version 0.27 :  Added OZLB's TinyJS.setVariable (with some tweaks)
                    Added OZLB's Maths Functions
+   Version 0.28 :  Ternary operator
+                   Rudimentary call stack on error
+                   Added String Character functions
+                   Added shift operators
 
 
     NOTE: This doesn't support constructors for objects
+          Constructing an array with an initial length 'Array(5)' doesn't work
           Recursive loops of data such as a.foo = a; fail to be garbage collected
-          'length' cannot be set
-          There is no ternary operator implemented yet
-          The postfix increment operator returns the current value, not the
-             previous as it should.
+          length variable cannot be set
+          The postfix increment operator returns the current value, not the previous as it should.
+          There is no prefix increment operator
           Arrays are implemented as a linked list - hence a lookup time is O(n)
 
     TODO:
@@ -341,6 +345,7 @@ string CScriptLex::getTokenStr(int token) {
         case LEX_LSHIFTEQUAL : return "<<=";
         case LEX_GEQUAL : return ">=";
         case LEX_RSHIFT : return ">>";
+        case LEX_RSHIFTUNSIGNED : return ">>";
         case LEX_RSHIFTEQUAL : return ">>=";
         case LEX_PLUSEQUAL : return "+=";
         case LEX_MINUSEQUAL : return "-=";
@@ -545,8 +550,11 @@ void CScriptLex::getNextToken() {
         } else if (tk=='>' && currCh=='>') {
             tk = LEX_RSHIFT;
             getNextCh();
-            if (currCh=='=') { // <<=
+            if (currCh=='=') { // >>=
               tk = LEX_RSHIFTEQUAL;
+              getNextCh();
+            } else if (currCh=='>') { // >>>
+              tk = LEX_RSHIFTUNSIGNED;
               getNextCh();
             }
         }  else if (tk=='+' && currCh=='=') {
@@ -602,9 +610,9 @@ string CScriptLex::getSubString(int lastPosition) {
 CScriptLex *CScriptLex::getSubLex(int lastPosition) {
     int lastCharIdx = tokenLastEnd+1;
     if (lastCharIdx < dataEnd)
-        return new CScriptLex( this, lastPosition, lastCharIdx);
+        return new CScriptLex(this, lastPosition, lastCharIdx);
     else
-        return new CScriptLex( this, lastPosition, dataEnd );
+        return new CScriptLex(this, lastPosition, dataEnd );
 }
 
 string CScriptLex::getPosition(int pos) {
@@ -1290,6 +1298,9 @@ void CTinyJS::execute(const string &code) {
     CScriptLex *oldLex = l;
     vector<CScriptVar*> oldScopes = scopes;
     l = new CScriptLex(code);
+#ifdef TINYJS_CALL_STACK
+    call_stack.clear();
+#endif
     scopes.clear();
     scopes.push_back(root);
     try {
@@ -1297,9 +1308,15 @@ void CTinyJS::execute(const string &code) {
         while (l->tk) statement(execute);
     } catch (CScriptException *e) {
         ostringstream msg;
-        msg << "Error " << e->text << " at " << l->getPosition();
+        msg << "Error " << e->text;
+#ifdef TINYJS_CALL_STACK
+        for (int i=(int)call_stack.size()-1;i>=0;i--)
+          msg << "\n" << i << ": " << call_stack.at(i);
+#endif
+        msg << " at " << l->getPosition();
         delete l;
         l = oldLex;
+
         throw new CScriptException(msg.str());
     }
     delete l;
@@ -1312,6 +1329,9 @@ CScriptVarLink CTinyJS::evaluateComplex(const string &code) {
     vector<CScriptVar*> oldScopes = scopes;
 
     l = new CScriptLex(code);
+#ifdef TINYJS_CALL_STACK
+    call_stack.clear();
+#endif
     scopes.clear();
     scopes.push_back(root);
     CScriptVarLink *v = 0;
@@ -1323,10 +1343,16 @@ CScriptVarLink CTinyJS::evaluateComplex(const string &code) {
           if (l->tk!=LEX_EOF) l->match(';');
         } while (l->tk!=LEX_EOF);
     } catch (CScriptException *e) {
-        ostringstream msg;
-        msg << "Error " << e->text << " at " << l->getPosition();
-        delete l;
-        l = oldLex;
+      ostringstream msg;
+      msg << "Error " << e->text;
+#ifdef TINYJS_CALL_STACK
+      for (int i=(int)call_stack.size()-1;i>=0;i--)
+        msg << "\n" << i << ": " << call_stack.at(i);
+#endif
+      msg << " at " << l->getPosition();
+      delete l;
+      l = oldLex;
+
         throw new CScriptException(msg.str());
     }
     delete l;
@@ -1475,6 +1501,9 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
                 // add the function's execute space to the symbol table so we can recurse
                 CScriptVarLink *returnVarLink = functionRoot->addChild(TINYJS_RETURN_VAR);
                 scopes.push_back(functionRoot);
+#ifdef TINYJS_CALL_STACK
+                call_stack.push_back(a->name + " from " + l->getPosition());
+#endif
 
                 if (a->var->isNative()) {
                     ASSERT(a->var->jsCallback);
@@ -1500,7 +1529,9 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
                     if (exception)
                       throw exception;
                 }
-
+#ifdef TINYJS_CALL_STACK
+                if (!call_stack.empty()) call_stack.pop_back();
+#endif
                 scopes.pop_back();
                 /* get the real return var before we remove it from our function */
                 returnVar = new CScriptVarLink(returnVarLink->var);
@@ -1548,7 +1579,7 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
                 l->match(LEX_ID);
             } else if (l->tk == '[') { // ------------------------------------- Array Access
                 l->match('[');
-                CScriptVarLink *index = expression(execute);
+                CScriptVarLink *index = base(execute);
                 l->match(']');
                 if (execute) {
                   CScriptVarLink *child = a->var->findChildOrCreate(index->var->getString());
@@ -1719,8 +1750,25 @@ CScriptVarLink *CTinyJS::expression(bool &execute) {
     return a;
 }
 
+CScriptVarLink *CTinyJS::shift(bool &execute) {
+  CScriptVarLink *a = expression(execute);
+  if (l->tk==LEX_LSHIFT || l->tk==LEX_RSHIFT || l->tk==LEX_RSHIFTUNSIGNED) {
+    int op = l->tk;
+    l->match(op);
+    CScriptVarLink *b = base(execute);
+    int shift = execute ? b->var->getInt() : 0;
+    CLEAN(b);
+    if (execute) {
+      if (op==LEX_LSHIFT) a->var->setInt(a->var->getInt() << shift);
+      if (op==LEX_RSHIFT) a->var->setInt(a->var->getInt() >> shift);
+      if (op==LEX_RSHIFTUNSIGNED) a->var->setInt(((unsigned int)a->var->getInt()) >> shift);
+    }
+  }
+  return a;
+}
+
 CScriptVarLink *CTinyJS::condition(bool &execute) {
-    CScriptVarLink *a = expression(execute);
+    CScriptVarLink *a = shift(execute);
     CScriptVarLink *b;
     while (l->tk==LEX_EQUAL || l->tk==LEX_NEQUAL ||
            l->tk==LEX_TYPEEQUAL || l->tk==LEX_NTYPEEQUAL ||
@@ -1728,7 +1776,7 @@ CScriptVarLink *CTinyJS::condition(bool &execute) {
            l->tk=='<' || l->tk=='>') {
         int op = l->tk;
         l->match(l->tk);
-        b = expression(execute);
+        b = shift(execute);
         if (execute) {
             CScriptVar *res = a->var->mathsOp(b->var, op);
             CREATE_LINK(a,res);
@@ -1775,8 +1823,36 @@ CScriptVarLink *CTinyJS::logic(bool &execute) {
     return a;
 }
 
+CScriptVarLink *CTinyJS::ternary(bool &execute) {
+  CScriptVarLink *lhs = logic(execute);
+  bool noexec = false;
+  if (l->tk=='?') {
+    l->match('?');
+    if (!execute) {
+      CLEAN(lhs);
+      CLEAN(base(noexec));
+      l->match(':');
+      CLEAN(base(noexec));
+    } else {
+      bool first = lhs->var->getBool();
+      CLEAN(lhs);
+      if (first) {
+        lhs = base(execute);
+        l->match(':');
+        CLEAN(base(noexec));
+      } else {
+        CLEAN(base(noexec));
+        l->match(':');
+        lhs = base(execute);
+      }
+    }
+  }
+
+  return lhs;
+}
+
 CScriptVarLink *CTinyJS::base(bool &execute) {
-    CScriptVarLink *lhs = logic(execute);
+    CScriptVarLink *lhs = ternary(execute);
     if (l->tk=='=' || l->tk==LEX_PLUSEQUAL || l->tk==LEX_MINUSEQUAL) {
         /* If we're assigning to this and we don't have a parent,
          * add it to the symbol table root as per JavaScript. */
@@ -1846,27 +1922,31 @@ void CTinyJS::statement(bool &execute) {
          * hand side. Maybe just have a flag called can_create_var that we
          * set and then we parse as if we're doing a normal equals.*/
         l->match(LEX_R_VAR);
-        CScriptVarLink *a = 0;
-        if (execute)
-          a = scopes.back()->findChildOrCreate(l->tkStr);
-        l->match(LEX_ID);
-        // now do stuff defined with dots
-        while (l->tk == '.') {
-            l->match('.');
-            if (execute) {
-                CScriptVarLink *lastA = a;
-                a = lastA->var->findChildOrCreate(l->tkStr);
-            }
-            l->match(LEX_ID);
-        }
-        // sort out initialiser
-        if (l->tk == '=') {
-            l->match('=');
-            CScriptVarLink *var = base(execute);
-            if (execute)
-                a->replaceWith(var);
-            CLEAN(var);
-        }
+        while (l->tk != ';') {
+          CScriptVarLink *a = 0;
+          if (execute)
+            a = scopes.back()->findChildOrCreate(l->tkStr);
+          l->match(LEX_ID);
+          // now do stuff defined with dots
+          while (l->tk == '.') {
+              l->match('.');
+              if (execute) {
+                  CScriptVarLink *lastA = a;
+                  a = lastA->var->findChildOrCreate(l->tkStr);
+              }
+              l->match(LEX_ID);
+          }
+          // sort out initialiser
+          if (l->tk == '=') {
+              l->match('=');
+              CScriptVarLink *var = base(execute);
+              if (execute)
+                  a->replaceWith(var);
+              CLEAN(var);
+          }
+          if (l->tk != ';')
+            l->match(',');
+        }       
         l->match(';');
     } else if (l->tk==LEX_R_IF) {
         l->match(LEX_R_IF);

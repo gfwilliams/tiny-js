@@ -4,7 +4,8 @@ LDFLAGS=-g -rdynamic
 
 SOURCES=  \
 TinyJS.cpp \
-TinyJS_Functions.cpp
+TinyJS_Functions.cpp \
+TinyJS_MathFunctions.cpp
 
 OBJECTS=$(SOURCES:.cpp=.o)
 
@@ -20,4 +21,4 @@ Script: Script.o $(OBJECTS)
 	$(CC) $(CFLAGS) $< -o $@
 
 clean:
-	rm run_tests Script run_tests.o Script.o $(OBJECTS)
+	rm -f run_tests Script run_tests.o Script.o $(OBJECTS)

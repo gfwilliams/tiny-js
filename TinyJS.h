@@ -305,8 +305,12 @@ public:
     */
     void addNative(const std::string &funcDesc, JSCallback ptr, void *userdata);
 
+    /// Get the given variable specified by a path (var1.var2.etc), or return 0
+    CScriptVar *getScriptVariable(const std::string &path);
     /// Get the value of the given variable, or return 0
     const std::string *getVariable(const std::string &path);
+    /// set the value of the given variable, return trur if it exists and gets set
+    bool setVariable(const std::string &path, const std::string &varData);
 
     /// Send all variables to stdout
     void trace();

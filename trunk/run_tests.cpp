@@ -29,6 +29,7 @@
 
 #include "TinyJS.h"
 #include "TinyJS_Functions.h"
+#include "TinyJS_MathFunctions.h"
 #include <assert.h>
 #include <sys/stat.h>
 #include <string>
@@ -206,6 +207,7 @@ bool run_test(const char *filename) {
 
   CTinyJS s;
   registerFunctions(&s);
+  registerMathFunctions(&s);
   s.root->addChild("result", new CScriptVar("0",SCRIPTVAR_INTEGER));
   try {
     s.execute(buffer);

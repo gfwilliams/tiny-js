@@ -86,15 +86,17 @@
    Version 0.25 :  Better string escaping
    Version 0.26 :  Add CScriptVar::equals
                    Add built-in array functions
+   Version 0.27 :  Added OZLB's TinyJS.setVariable (with some tweaks)
+                   Added OZLB's Maths Functions
 
 
     NOTE: This doesn't support constructors for objects
           Recursive loops of data such as a.foo = a; fail to be garbage collected
           'length' cannot be set
           There is no ternary operator implemented yet
-	      The postfix increment operator returns the current value, not the
-            previous as it should.
-          Arrays are implemented as a linked list - hence a lookup is O(n)
+          The postfix increment operator returns the current value, not the
+             previous as it should.
+          Arrays are implemented as a linked list - hence a lookup time is O(n)
 
     TODO:
           Utility va-args style function in TinyJS for executing a function directly
@@ -1996,8 +1998,8 @@ void CTinyJS::statement(bool &execute) {
     } else l->match(LEX_EOF);
 }
 
-/// Get the value of the given variable, or return 0
-const string *CTinyJS::getVariable(const string &path) {
+/// Get the given variable specified by a path (var1.var2.etc), or return 0
+CScriptVar *CTinyJS::getScriptVariable(const string &path) {
     // traverse path
     size_t prevIdx = 0;
     size_t thisIdx = path.find('.');
@@ -2011,11 +2013,34 @@ const string *CTinyJS::getVariable(const string &path) {
         thisIdx = path.find('.', prevIdx);
         if (thisIdx == string::npos) thisIdx = path.length();
     }
+    return var;
+}
+
+/// Get the value of the given variable, or return 0
+const string *CTinyJS::getVariable(const string &path) {
+    CScriptVar *var = getScriptVariable(path);
     // return result
     if (var)
         return &var->getString();
     else
         return 0;
+}
+
+/// set the value of the given variable, return trur if it exists and gets set
+bool CTinyJS::setVariable(const std::string &path, const std::string &varData) {
+    CScriptVar *var = getScriptVariable(path);
+    // return result
+    if (var) {
+        if (var->isInt())
+            var->setInt((int)strtol(varData.c_str(),0,0));
+        else if (var->isDouble())
+            var->setDouble(strtod(varData.c_str(),0));
+        else
+            var->setString(varData.c_str());
+        return true;
+    }    
+    else
+        return false;
 }
 
 /// Finds a child, looking recursively up the scopes

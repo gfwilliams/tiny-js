@@ -92,9 +92,10 @@
                    Rudimentary call stack on error
                    Added String Character functions
                    Added shift operators
+   Version 0.29 :  Added new object via functions
+                   Fixed getString() for double on some platforms
 
-
-    NOTE: This doesn't support constructors for objects
+    NOTE:
           Constructing an array with an initial length 'Array(5)' doesn't work
           Recursive loops of data such as a.foo = a; fail to be garbage collected
           length variable cannot be set
@@ -951,7 +952,7 @@ const string &CScriptVar::getString() {
     }
     if (isDouble()) {
       char buffer[32];
-      sprintf_s(buffer, sizeof(buffer), "%lf", doubleData);
+      sprintf_s(buffer, sizeof(buffer), "%f", doubleData);
       data = buffer;
       return data;
     }
@@ -1429,6 +1430,104 @@ CScriptVarLink *CTinyJS::parseFunctionDefinition() {
   return funcVar;
 }
 
+/** Handle a function call (assumes we've parsed the function name and we're
+ * on the start bracket). 'parent' is the object that contains this method,
+ * if there was one (otherwise it's just a normnal function).
+ */
+CScriptVarLink *CTinyJS::functionCall(bool &execute, CScriptVarLink *function, CScriptVar *parent) {
+  if (execute) {
+    if (!function->var->isFunction()) {
+        string errorMsg = "Expecting '";
+        errorMsg = errorMsg + function->name + "' to be a function";
+        throw new CScriptException(errorMsg.c_str());
+    }
+    l->match('(');
+    // create a new symbol table entry for execution of this function
+    CScriptVar *functionRoot = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FUNCTION);
+    if (parent)
+      functionRoot->addChildNoDup("this", parent);
+    // grab in all parameters
+    CScriptVarLink *v = function->var->firstChild;
+    while (v) {
+        CScriptVarLink *value = base(execute);
+        if (execute) {
+            if (value->var->isBasic()) {
+              // pass by value
+              functionRoot->addChild(v->name, value->var->deepCopy());
+            } else {
+              // pass by reference
+              functionRoot->addChild(v->name, value->var);
+            }
+        }
+        CLEAN(value);
+        if (l->tk!=')') l->match(',');
+        v = v->nextSibling;
+    }
+    l->match(')');
+    // setup a return variable
+    CScriptVarLink *returnVar = NULL;
+    // execute function!
+    // add the function's execute space to the symbol table so we can recurse
+    CScriptVarLink *returnVarLink = functionRoot->addChild(TINYJS_RETURN_VAR);
+    scopes.push_back(functionRoot);
+#ifdef TINYJS_CALL_STACK
+    call_stack.push_back(function->name + " from " + l->getPosition());
+#endif
+
+    if (function->var->isNative()) {
+        ASSERT(function->var->jsCallback);
+        function->var->jsCallback(functionRoot, function->var->jsCallbackUserData);
+    } else {
+        /* we just want to execute the block, but something could
+         * have messed up and left us with the wrong ScriptLex, so
+         * we want to be careful here... */
+        CScriptException *exception = 0;
+        CScriptLex *oldLex = l;
+        CScriptLex *newLex = new CScriptLex(function->var->getString());
+        l = newLex;
+        try {
+          block(execute);
+          // because return will probably have called this, and set execute to false
+          execute = true;
+        } catch (CScriptException *e) {
+          exception = e;
+        }
+        delete newLex;
+        l = oldLex;
+
+        if (exception)
+          throw exception;
+    }
+#ifdef TINYJS_CALL_STACK
+    if (!call_stack.empty()) call_stack.pop_back();
+#endif
+    scopes.pop_back();
+    /* get the real return var before we remove it from our function */
+    returnVar = new CScriptVarLink(returnVarLink->var);
+    functionRoot->removeLink(returnVarLink);
+    delete functionRoot;
+    if (returnVar)
+      return returnVar;
+    else
+      return new CScriptVarLink(new CScriptVar());
+  } else {
+    // function, but not executing - just parse args and be done
+    l->match('(');
+    while (l->tk != ')') {
+      CScriptVarLink *value = base(execute);
+      CLEAN(value);
+      if (l->tk!=')') l->match(',');
+    }
+    l->match(')');
+    if (l->tk == '{') {
+      block(execute);
+    }
+    /* function will be a blank scriptvarlink if we're not executing,
+     * so just return it rather than an alloc/free */
+    return function;
+  }
+}
+
 CScriptVarLink *CTinyJS::factor(bool &execute) {
     if (l->tk=='(') {
         l->match('(');
@@ -1466,94 +1565,7 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
         l->match(LEX_ID);
         while (l->tk=='(' || l->tk=='.' || l->tk=='[') {
             if (l->tk=='(') { // ------------------------------------- Function Call
-              if (execute) {
-                if (!a->var->isFunction()) {
-                    string errorMsg = "Expecting '";
-                    errorMsg = errorMsg + a->name + "' to be a function";
-                    throw new CScriptException(errorMsg.c_str());
-                }
-                l->match('(');
-                // create a new symbol table entry for execution of this function
-                CScriptVar *functionRoot = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_FUNCTION);
-                if (parent)
-                  functionRoot->addChildNoDup("this", parent);
-                // grab in all parameters
-                CScriptVarLink *v = a->var->firstChild;
-                while (v) {
-                    CScriptVarLink *value = base(execute);
-                    if (execute) {
-                        if (value->var->isBasic()) {
-                          // pass by value
-                          functionRoot->addChild(v->name, value->var->deepCopy());
-                        } else {
-                          // pass by reference
-                          functionRoot->addChild(v->name, value->var);
-                        }
-                    }
-                    CLEAN(value);
-                    if (l->tk!=')') l->match(',');
-                    v = v->nextSibling;
-                }
-                l->match(')');
-                // setup a return variable
-                CScriptVarLink *returnVar = NULL;
-                // execute function!
-                // add the function's execute space to the symbol table so we can recurse
-                CScriptVarLink *returnVarLink = functionRoot->addChild(TINYJS_RETURN_VAR);
-                scopes.push_back(functionRoot);
-#ifdef TINYJS_CALL_STACK
-                call_stack.push_back(a->name + " from " + l->getPosition());
-#endif
-
-                if (a->var->isNative()) {
-                    ASSERT(a->var->jsCallback);
-                    a->var->jsCallback(functionRoot, a->var->jsCallbackUserData);
-                } else {
-                    /* we just want to execute the block, but something could
-                     * have messed up and left us with the wrong ScriptLex, so
-                     * we want to be careful here... */
-                    CScriptException *exception = 0;
-                    CScriptLex *oldLex = l;
-                    CScriptLex *newLex = new CScriptLex(a->var->getString());
-                    l = newLex;
-                    try {
-                      block(execute);
-                      // because return will probably have called this, and set execute to false
-                      execute = true;
-                    } catch (CScriptException *e) {
-                      exception = e;
-                    }
-                    delete newLex;
-                    l = oldLex;
-
-                    if (exception)
-                      throw exception;
-                }
-#ifdef TINYJS_CALL_STACK
-                if (!call_stack.empty()) call_stack.pop_back();
-#endif
-                scopes.pop_back();
-                /* get the real return var before we remove it from our function */
-                returnVar = new CScriptVarLink(returnVarLink->var);
-                functionRoot->removeLink(returnVarLink);
-                delete functionRoot;
-                if (returnVar)
-                  a = returnVar;
-                else
-                  a = new CScriptVarLink(new CScriptVar());
-              } else {
-                // function, but not executing - just parse args and be done
-                l->match('(');
-                while (l->tk != ')') {
-                  CScriptVarLink *value = base(execute);
-                  CLEAN(value);
-                  if (l->tk!=')') l->match(',');
-                }
-                l->match(')');
-                if (l->tk == '{') {
-                  block(execute);
-                }
-              }
+                a = functionCall(execute, a, parent);
             } else if (l->tk == '.') { // ------------------------------------- Record Access
                 l->match('.');
                 if (execute) {
@@ -1656,20 +1668,24 @@ CScriptVarLink *CTinyJS::factor(bool &execute) {
       l->match(LEX_R_NEW);
       const string &className = l->tkStr;
       if (execute) {
-        CScriptVarLink *objClass = findInScopes(className);
-        if (!objClass) {
+        CScriptVarLink *objClassOrFunc = findInScopes(className);
+        if (!objClassOrFunc) {
           TRACE("%s is not a valid class name", className.c_str());
           return new CScriptVarLink(new CScriptVar());
         }
         l->match(LEX_ID);
         CScriptVar *obj = new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_OBJECT);
-        obj->addChild(TINYJS_PROTOTYPE_CLASS, objClass->var);
-        if (l->tk == '(') {
-          l->match('(');
-          l->match(')');
+        CScriptVarLink *objLink = new CScriptVarLink(obj);
+        if (objClassOrFunc->var->isFunction()) {
+          CLEAN(functionCall(execute, objClassOrFunc, obj));
+        } else {
+          obj->addChild(TINYJS_PROTOTYPE_CLASS, objClassOrFunc->var);
+          if (l->tk == '(') {
+            l->match('(');
+            l->match(')');
+          }
         }
-        // TODO: Object constructors
-        return new CScriptVarLink(obj);
+        return objLink;
       } else {
         l->match(LEX_ID);
         if (l->tk == '(') {

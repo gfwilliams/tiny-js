@@ -333,6 +333,7 @@ private:
     CScriptVar *arrayClass; /// Built in array class
 
     // parsing - in order of precedence
+    CScriptVarLink *functionCall(bool &execute, CScriptVarLink *function, CScriptVar *parent);
     CScriptVarLink *factor(bool &execute);
     CScriptVarLink *unary(bool &execute);
     CScriptVarLink *term(bool &execute);

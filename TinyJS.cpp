@@ -94,6 +94,7 @@
                    Added shift operators
    Version 0.29 :  Added new object via functions
                    Fixed getString() for double on some platforms
+   Version 0.30 :  Rlyeh Mario's patch for Math Functions on VC++
 
     NOTE:
           Constructing an array with an initial length 'Array(5)' doesn't work

@@ -14,7 +14,7 @@
 
 using namespace std;
 
-#define k_E                 exp(1)
+#define k_E                 exp(1.0)
 #define k_PI                3.1415926535897932384626433832795
 
 #define F_ABS(a)            ((a)>=0 ? (a) : (-(a)))
@@ -31,6 +31,35 @@ using namespace std;
 #define scGetDouble(a)      ( c->getParameter(a)->getDouble() )  
 #define scReturnInt(a)      ( c->getReturnVar()->setInt(a) )
 #define scReturnDouble(a)   ( c->getReturnVar()->setDouble(a) )  
+
+#ifdef _MSC_VER
+namespace
+{
+    double asinh( const double &value )
+    {
+        double returned;
+
+        if(value>0)
+        returned = log(value + sqrt(value * value + 1));
+        else
+        returned = -log(-value + sqrt(value * value + 1));
+
+        return(returned);
+    }
+
+    double acosh( const double &value )
+    {
+        double returned;
+
+        if(value>0)
+        returned = log(value + sqrt(value * value - 1));
+        else
+        returned = -log(-value + sqrt(value * value - 1));
+
+        return(returned);
+    }
+}
+#endif
 
 //Math.abs(x) - returns absolute of given value
 void scMathAbs(CScriptVar *c, void *userdata) {

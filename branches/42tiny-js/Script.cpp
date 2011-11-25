@@ -33,6 +33,7 @@
 #endif
 #include "TinyJS.h"
 #include "TinyJS_Functions.h"
+#include "TinyJS_MathFunctions.h"
 #include <assert.h>
 #include <stdio.h>
  	
@@ -71,6 +72,7 @@ int main(int UNUSED(argc), char **UNUSED(argv))
   CTinyJS *js = new CTinyJS();
   /* add the functions from TinyJS_Functions.cpp */
   registerFunctions(js);
+  registerMathFunctions(js);
   /* Add a native function */
   js->addNative("function print(text)", &js_print, 0);
   js->addNative("function dump()", &js_dump, js);

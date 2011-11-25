@@ -70,11 +70,13 @@
   <ItemGroup>
     <ClCompile Include="TinyJS.cpp" />
     <ClCompile Include="TinyJS_Functions.cpp" />
+    <ClCompile Include="TinyJS_MathFunctions.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="targetver.h" />
     <ClInclude Include="TinyJS.h" />
     <ClInclude Include="TinyJS_Functions.h" />
+    <ClInclude Include="TinyJS_MathFunctions.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

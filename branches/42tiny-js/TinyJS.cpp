@@ -1032,7 +1032,7 @@ int CScriptVar::getArrayLength() {
 
 int CScriptVar::getInt() {
 	/* strtol understands about hex and octal */
-	if (isInt()) return intData;
+	if (isInt() || isBool()) return intData;
 //  if (isNull()) return 0;
 //  if (isUndefined()) return 0;
 	if (isDouble()) return (int)doubleData;

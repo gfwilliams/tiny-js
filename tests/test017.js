@@ -1,6 +1,10 @@
 // references for arrays
 
-var a;
+// 42-tiny-js change begin --->
+//var a; // in JavaScript it's not allowed to add array elements to a var with type "undefined"
+var a = [];
+//<--- 42-tiny-js change end
+
 a[0] = 10;
 a[1] = 22;
 

@@ -10,10 +10,10 @@ if ((""+testUndefined) != "undefined") result = 0; // test variable exists but v
 //<--- 42-tiny-js change end
 if ((""+testObj.myProp) != "undefined") result = 0; // testObj exists, property does not, displays undefined
 if (!(undefined == null)) result = 0;  // unenforced type during check, displays true
-//if (undefined === null) result = 0;// enforce type during check, displays false
+if (undefined === null) result = 0;// enforce type during check, displays false
 
 
-//if (null != undefined) result = 0;  // unenforced type during check, displays true
-//if (null === undefined) result = 0; // enforce type during check, displays false
+if (null != undefined) result = 0;  // unenforced type during check, displays true
+if (null === undefined) result = 0; // enforce type during check, displays false
 
 

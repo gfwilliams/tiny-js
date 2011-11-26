@@ -1171,20 +1171,25 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
 	// Type equality check
 	if (op == LEX_TYPEEQUAL || op == LEX_NTYPEEQUAL) {
 		// check type first, then call again to check data
-		bool eql = ((a->flags & SCRIPTVAR_VARTYPEMASK) ==
-						(b->flags & SCRIPTVAR_VARTYPEMASK)) &&
-						a->mathsOp(b, LEX_EQUAL);
+		bool eql = false;
+		if(!a->isNaN() && !b->isNaN() &&
+						((a->flags & SCRIPTVAR_VARTYPEMASK) ==
+						(b->flags & SCRIPTVAR_VARTYPEMASK))) {
+			CScriptVar * e = a->mathsOp(b, LEX_EQUAL);
+			eql = e->getBool();
+			delete e;
+		}
 		if (op == LEX_TYPEEQUAL)
 			return new CScriptVar(eql);
 		else
 			return new CScriptVar(!eql);
 	}
 	// do maths...
-	if((a->isNaN() || a->isUndefined() || b->isNaN() || b->isUndefined()) && !a->isString() && !b->isString()) {
+	if( a->isNaN() || b->isNaN() || ((a->isUndefined() || b->isUndefined()) && !a->isString() && !b->isString())) {
 		switch (op) {
-			case LEX_NEQUAL:	return new CScriptVar(!(a->isUndefined() && b->isUndefined()));
-			case LEX_EQUAL:	return new CScriptVar((a->isUndefined() && b->isUndefined()));
-			case LEX_GEQUAL:	
+			case LEX_NEQUAL:	return new CScriptVar( !( ( a->isUndefined() || a->isNull() ) && ( b->isUndefined() || b->isNull() ) ) );
+			case LEX_EQUAL:	return new CScriptVar(    ( a->isUndefined() || a->isNull() ) && ( b->isUndefined() || b->isNull() )   );
+			case LEX_GEQUAL:
 			case LEX_LEQUAL:
 			case '<':
 			case '>':			return new CScriptVar(false);
@@ -1201,7 +1206,7 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
 	} else if((a->isInfinity() || b->isInfinity()) && !a->isString() && !b->isString()) {
 		switch (op) {
 			case LEX_EQUAL:
-			case LEX_GEQUAL:	
+			case LEX_GEQUAL:
 			case LEX_LEQUAL:	return new CScriptVar(a->isInfinity() == b->isInfinity());
 			case LEX_NEQUAL:	return new CScriptVar(a->isInfinity() != b->isInfinity());
 			case '<':
@@ -1227,18 +1232,20 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
 	} else { //Strings
 		string da = a->getString();
 		string db = b->getString();
+/*
 		if((a->isNumeric() || b->isNumeric()) && op != '+')
 		{
-			CScriptVar *ret = NULL;
+			CScriptVar *ret = 0;
 			CScriptVar *a_num = String2NumericVar(da);
 			CScriptVar *b_num = String2NumericVar(db);
 			if(a_num && b_num)
 				ret = a_num->mathsOp(b_num, op);
 			if(a_num) delete a_num;
 			if(b_num) delete b_num;
-			if(ret) 
+			if(ret)
 				return ret;
 		}
+*/
 		// use strings
 		switch (op) {
 			case '+':			return new CScriptVar(da+db, SCRIPTVAR_STRING);
@@ -1248,7 +1255,19 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
 			case LEX_LEQUAL:	return new CScriptVar(da<=db);
 			case '>':			return new CScriptVar(da>db);
 			case LEX_GEQUAL:	return new CScriptVar(da>=db);
-			default:				return new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_NAN);
+			default:
+				{
+					CScriptVar *ret = 0;
+					CScriptVar *a_num = String2NumericVar(da);
+					CScriptVar *b_num = String2NumericVar(db);
+					if(a_num && b_num)
+						ret = a_num->mathsOp(b_num, op);
+					if(a_num) delete a_num;
+					if(b_num) delete b_num;
+					if(ret)
+						return ret;
+				}
+				return new CScriptVar(TINYJS_BLANK_DATA, SCRIPTVAR_NAN);
 		}
 	}
 	ASSERT(0);

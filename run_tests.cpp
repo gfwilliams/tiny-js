@@ -26,6 +26,18 @@
 /*
  * This is a program to run all the tests in the tests folder...
  */
+//#define _AFXDLL
+#ifdef _DEBUG
+#	ifdef _MSC_VER
+#		ifdef USE_DEBUG_NEW
+#			include "targetver.h"
+#			include <afx.h>
+#			define new DEBUG_NEW
+#		endif
+#	else
+#		define DEBUG_MEMORY 1
+#	endif
+#endif
 
 #include "TinyJS.h"
 #include "TinyJS_Functions.h"
@@ -250,31 +262,43 @@ int main(int argc, char **argv)
     return !run_test(argv[1]);
   }
 
-  int test_num = 1;
   int count = 0;
   int passed = 0;
+  const char *mask = "tests/test%03d.42.js";
+  for(int js42 = 0; js42<2; js42++) {
+    int test_num = 1;
+    while (test_num<1000) {
+      char fn[32];
+      sprintf(fn, mask, test_num);
+      // check if the file exists - if not, try 42TinyJS-spezial or assume we're at the end of our tests
+      FILE *f = fopen(fn,"r");
+      if (!f) {
+        if(js42) break;
+        sprintf(fn, "tests/test%03d.js", test_num);
+        f = fopen(fn,"r");
+        if(!f) break;
+      }
+      fclose(f);
 
-  while (test_num<1000) {
-    char fn[32];
-    sprintf(fn, "tests/test%03d.js", test_num);
-    // check if the file exists - if not, assume we're at the end of our tests
-    FILE *f = fopen(fn,"r");
-    if (!f) break;
-    fclose(f);
-
-    if (run_test(fn))
-      passed++;
-    count++;
-    test_num++;
+      if (run_test(fn))
+        passed++;
+        count++;
+        test_num++;
+    }
+    mask = "tests/42tests/test%03d.js";
   }
-
   printf("Done. %d tests, %d pass, %d fail\n", count, passed, count-passed);
 #ifdef INSANE_MEMORY_DEBUG
     memtracing_kill();
 #endif
 #ifdef _WIN32
 #ifdef _DEBUG
-  _CrtDumpMemoryLeaks();
+//  _CrtDumpMemoryLeaks();
+/*
+  no dump momoryleaks here
+  _CrtSetDbgFlag(..) force dump memoryleake after call of all global deconstructors
+*/
+  _CrtSetDbgFlag ( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF );
 #endif
 #endif
   return 0;

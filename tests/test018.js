@@ -1,7 +1,7 @@
 // references with functions
 
 var a = 42;
-var b;
+var b = [];
 b[0] = 43;
 
 function foo(myarray) {

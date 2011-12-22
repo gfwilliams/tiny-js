@@ -97,6 +97,7 @@
    Version 0.30 :  Rlyeh Mario's patch for Math Functions on VC++
    Version 0.31 :  Add exec() to TinyJS functions
                    Now print quoted JSON that can be read by PHP/Python parsers
+                   Fixed postfix increment operator
 
     NOTE:
           Constructing an array with an initial length 'Array(5)' doesn't work
@@ -1751,8 +1752,11 @@ CScriptVarLink *CTinyJS::expression(bool &execute) {
             if (execute) {
                 CScriptVar one(1);
                 CScriptVar *res = a->var->mathsOp(&one, op==LEX_PLUSPLUS ? '+' : '-');
+                CScriptVarLink *oldValue = new CScriptVarLink(a->var);
                 // in-place add/subtract
                 a->replaceWith(res);
+                CLEAN(a);
+                a = oldValue;
             }
         } else {
             CScriptVarLink *b = term(execute);

@@ -1,6 +1,6 @@
 // references for arrays
 
-var a;
+var a = [];
 a[0] = 10;
 a[1] = 22;
 

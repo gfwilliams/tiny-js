@@ -214,7 +214,7 @@ public:
 
 	std::string getSubString(int pos); ///< Return a sub-string from the given position up until right now
 	CScriptLex *getSubLex(int lastPosition); ///< Return a sub-lexer from the given position up until right now
-	int CScriptLex::getDataPos();
+	int getDataPos();
 	std::string getPosition(int pos=-1); ///< Return a string representing the position in lines and columns of the character pos given
 
 protected:

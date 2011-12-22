@@ -98,6 +98,7 @@
 					Added some Visual Studio Preprocessor stuff
 					Added now allowed stuff like this (function (v) {print(v);})(12);
 					Remove unneeded and wrong deepCopy by assignment operator '='
+                                        (gw) Small tweaks to allow compilation with GCC
 
 
 	NOTE: This doesn't support constructors for objects
@@ -1320,7 +1321,8 @@ CScriptVar *CScriptVar::deepCopy() {
 }
 
 void CScriptVar::trace(const string &name) {
-	trace(string(), name);
+        string tmp;
+	trace(tmp, name);
 }
 void CScriptVar::trace(string &indentStr, const string &name) {
 	string indent = "  ";

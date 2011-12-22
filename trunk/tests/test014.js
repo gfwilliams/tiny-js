@@ -1,6 +1,7 @@
 // Variable creation and scope from http://en.wikipedia.org/wiki/JavaScript_syntax
 x = 0; // A global variable
 var y = 'Hello!'; // Another global variable
+z = 0; // yet another global variable
 
 function f(){
   var z = 'foxes'; // A local variable

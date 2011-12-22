@@ -36,6 +36,9 @@
 #include <sstream>
 #include <stdio.h>
 
+#ifdef MTRACE
+  #include <mcheck.h>
+#endif
 
 //#define INSANE_MEMORY_DEBUG
 
@@ -238,6 +241,9 @@ bool run_test(const char *filename) {
 
 int main(int argc, char **argv)
 {
+#ifdef MTRACE
+  mtrace();
+#endif
 #ifdef INSANE_MEMORY_DEBUG
     memtracing_init();
 #endif
@@ -271,10 +277,15 @@ int main(int argc, char **argv)
 #ifdef INSANE_MEMORY_DEBUG
     memtracing_kill();
 #endif
-#ifdef _WIN32
+
 #ifdef _DEBUG
+ #ifdef _WIN32
   _CrtDumpMemoryLeaks();
+ #endif
 #endif
+#ifdef MTRACE
+  muntrace();
 #endif
+
   return 0;
 }

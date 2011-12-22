@@ -148,6 +148,12 @@ void scJSONStringify(CScriptVar *c, void *) {
     c->getReturnVar()->setString(result.str());
 }
 
+void scExec(CScriptVar *c, void *data) {
+    CTinyJS *tinyJS = (CTinyJS *)data;
+    std::string str = c->getParameter("jsCode")->getString();
+    tinyJS->execute(str);
+}
+
 void scEval(CScriptVar *c, void *data) {
     CTinyJS *tinyJS = (CTinyJS *)data;
     std::string str = c->getParameter("jsCode")->getString();
@@ -212,7 +218,8 @@ void scArrayJoin(CScriptVar *c, void *data) {
 
 // ----------------------------------------------- Register Functions
 void registerFunctions(CTinyJS *tinyJS) {
-    tinyJS->addNative("function eval(jsCode)", scEval, tinyJS); // execute the given string and return the result
+    tinyJS->addNative("function exec(jsCode)", scExec, tinyJS); // execute the given code
+    tinyJS->addNative("function eval(jsCode)", scEval, tinyJS); // execute the given string (an expression) and return the result
     tinyJS->addNative("function trace()", scTrace, tinyJS);
     tinyJS->addNative("function Object.dump()", scObjectDump, 0);
     tinyJS->addNative("function Object.clone()", scObjectClone, 0);

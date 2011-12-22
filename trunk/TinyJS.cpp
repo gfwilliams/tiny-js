@@ -95,6 +95,8 @@
    Version 0.29 :  Added new object via functions
                    Fixed getString() for double on some platforms
    Version 0.30 :  Rlyeh Mario's patch for Math Functions on VC++
+   Version 0.31 :  Add exec() to TinyJS functions
+                   Now print quoted JSON that can be read by PHP/Python parsers
 
     NOTE:
           Constructing an array with an initial length 'Array(5)' doesn't work
@@ -106,6 +108,7 @@
 
     TODO:
           Utility va-args style function in TinyJS for executing a function directly
+          Merge the parsing of expressions/statements so eval("statement") works like we'd expect.
 
  */
 
@@ -1212,10 +1215,7 @@ void CScriptVar::getJSON(ostringstream &destination, const string linePrefix) {
       CScriptVarLink *link = firstChild;
       while (link) {
         destination << indentedLinePrefix;
-        if (isAlphaNum(link->name))
-          destination  << link->name;
-        else
-          destination  << getJSString(link->name);
+        destination  << getJSString(link->name);
         destination  << " : ";
         link->var->getJSON(destination, indentedLinePrefix);
         link = link->nextSibling;

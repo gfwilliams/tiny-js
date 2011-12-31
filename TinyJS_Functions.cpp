@@ -23,144 +23,153 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#ifdef _MSC_VER
-#	include "targetver.h"
-#	include <afx.h>
-#endif
 #include <math.h>
 #include <cstdlib>
 #include <sstream>
+#include <time.h>
 #include "TinyJS_Functions.h"
-
-#ifdef _DEBUG
-#	ifdef _MSC_VER
-#		define new DEBUG_NEW
-#	endif
-#endif
-
-#ifdef __GNUC__
-#	define UNUSED(x) __attribute__((__unused__))
-#elif defined(_MSC_VER)
-#	ifndef UNUSED
-#		define UNUSED(x) x
-#		pragma warning( disable : 4100 ) /* unreferenced formal parameter */
-#	endif
-#else
-#	define UNUSED(x) x
-#endif
-
 
 using namespace std;
 // ----------------------------------------------- Actual Functions
 
-void scTrace(CScriptVar *c, void * userdata) {
+static void scTrace(const CFunctionsScopePtr &c, void * userdata) {
 	CTinyJS *js = (CTinyJS*)userdata;
 	if(c->getParameterLength())
 		c->getParameter(0)->trace();
 	else
-		js->root->trace("root");
+		js->getRoot()->trace("root");
 }
 
-void scObjectDump(CScriptVar *c, void *) {
+static void scObjectDump(const CFunctionsScopePtr &c, void *) {
 	c->getParameter("this")->trace("> ");
 }
 
-void scObjectClone(CScriptVar *c, void *) {
-	CScriptVar *obj = c->getParameter("this");
-	c->getReturnVar()->copyValue(obj);
+static void scObjectClone(const CFunctionsScopePtr &c, void *) {
+	CScriptVarPtr obj = c->getParameter("this");
+	c->setReturnVar(obj->clone());
 }
 
-void scMathRand(CScriptVar *c, void *) {
-	c->getReturnVar()->setDouble((double)rand()/RAND_MAX);
-}
-
-void scMathRandInt(CScriptVar *c, void *) {
-	int min = c->getParameter("min")->getInt();
-	int max = c->getParameter("max")->getInt();
-	int val = min + (int)((long)rand()*(1+max-min)/RAND_MAX);
-	if (val>max) val=max;
-	c->getReturnVar()->setInt(val);
-}
-
-void scCharToInt(CScriptVar *c, void *) {
+static void scCharToInt(const CFunctionsScopePtr &c, void *) {
 	string str = c->getParameter("ch")->getString();;
 	int val = 0;
 	if (str.length()>0)
 		val = (int)str.c_str()[0];
-	c->getReturnVar()->setInt(val);
+	c->setReturnVar(c->newScriptVar(val));
 }
 
-void scStringIndexOf(CScriptVar *c, void *) {
-	string str = c->getParameter("this")->getString();
-	string search = c->getParameter("search")->getString();
-	size_t p = str.find(search);
-	int val = (p==string::npos) ? -1 : p;
-	c->getReturnVar()->setInt(val);
+
+static void scStringFromCharCode(const CFunctionsScopePtr &c, void *) {
+	char str[2];
+	str[0] = c->getParameter("char")->getInt();
+	str[1] = 0;
+	c->setReturnVar(c->newScriptVar(str));
 }
 
-void scStringSubstring(CScriptVar *c, void *) {
-	string str = c->getParameter("this")->getString();
-	int lo = c->getParameter("lo")->getInt();
-	int hi = c->getParameter("hi")->getInt();
-
-	int l = hi-lo;
-	if (l>0 && lo>=0 && lo+l<=(int)str.length())
-		c->getReturnVar()->setString(str.substr(lo, l));
-	else
-		c->getReturnVar()->setString("");
-}
-
-void scStringCharAt(CScriptVar *c, void *) {
-	string str = c->getParameter("this")->getString();
-	int p = c->getParameter("pos")->getInt();
-	if (p>=0 && p<(int)str.length())
-		c->getReturnVar()->setString(str.substr(p, 1));
-	else
-		c->getReturnVar()->setString("");
-}
-
-void scIntegerParseInt(CScriptVar *c, void *) {
+static void scIntegerParseInt(const CFunctionsScopePtr &c, void *) {
 	string str = c->getParameter("str")->getString();
 	int val = strtol(str.c_str(),0,0);
-	c->getReturnVar()->setInt(val);
+	c->setReturnVar(c->newScriptVar(val));
 }
 
-void scIntegerValueOf(CScriptVar *c, void *) {
+static void scIntegerValueOf(const CFunctionsScopePtr &c, void *) {
 	string str = c->getParameter("str")->getString();
 
 	int val = 0;
 	if (str.length()==1)
-		val = str[0];
-	c->getReturnVar()->setInt(val);
+		val = str.operator[](0);
+	c->setReturnVar(c->newScriptVar(val));
 }
 
-void scJSONStringify(CScriptVar *c, void *) {
-	std::ostringstream result;
-	c->getParameter("obj")->getJSON(result);
-	c->getReturnVar()->setString(result.str());
+static void scJSONStringify(const CFunctionsScopePtr &c, void *) {
+	string indent = "   ", indentString;
+	c->setReturnVar(c->newScriptVar(c->getParameter("obj")->getParsableString(indentString, indent)));
 }
 
-void scEval(CScriptVar *c, void *data) {
-	CTinyJS *tinyJS = (CTinyJS *)data;
-	std::string str = c->getParameter("jsCode")->getString();
-	c->setReturnVar(tinyJS->evaluateComplex(str).var);
+static void scArrayContains(const CFunctionsScopePtr &c, void *data) {
+	CScriptVarPtr obj = c->getParameter("obj");
+	CScriptVarPtr arr = c->getParameter("this");
+
+	int l = arr->getArrayLength();
+	CScriptVarSmartLink equal;
+	for (int i=0;i<l;i++) {
+		equal = obj->mathsOp(arr->getArrayIndex(i), LEX_EQUAL);
+		if((*equal)->getBool()) {
+			c->setReturnVar(c->newScriptVar(true));
+			return;
+		}
+	}
+	c->setReturnVar(c->newScriptVar(false));
+}
+
+static void scArrayRemove(const CFunctionsScopePtr &c, void *data) {
+	CScriptVarPtr obj = c->getParameter("obj");
+	CScriptVarPtr arr = c->getParameter("this");
+	int i;
+	vector<int> removedIndices;
+
+	int l = arr->getArrayLength();
+	CScriptVarSmartLink equal;
+	for (i=0;i<l;i++) {
+		equal = obj->mathsOp(arr->getArrayIndex(i), LEX_EQUAL);
+		if((*equal)->getBool()) {
+			removedIndices.push_back(i);
+		}
+	}
+	if(removedIndices.size()) {
+		vector<int>::iterator remove_it = removedIndices.begin();
+		int next_remove = *remove_it;
+		int next_insert = *remove_it++;
+		for (i=next_remove;i<l;i++) {
+
+			CScriptVarLink *link = arr->findChild(int2string(i));
+			if(i == next_remove) {
+				if(link) arr->removeLink(link);
+				if(remove_it != removedIndices.end())
+					next_remove = *remove_it++;
+			} else {
+				if(link) {
+					arr->setArrayIndex(next_insert++, link);
+					arr->removeLink(link);
+				}	
+			}
+		}
+	}
+}
+
+static void scArrayJoin(const CFunctionsScopePtr &c, void *data) {
+	string sep = c->getParameter("separator")->getString();
+	CScriptVarPtr arr = c->getParameter("this");
+
+	ostringstream sstr;
+	int l = arr->getArrayLength();
+	for (int i=0;i<l;i++) {
+		if (i>0) sstr << sep;
+		sstr << arr->getArrayIndex(i)->getString();
+	}
+
+	c->setReturnVar(c->newScriptVar(sstr.str()));
 }
 
 // ----------------------------------------------- Register Functions
 void registerFunctions(CTinyJS *tinyJS) {
-//    tinyJS->addNative("function eval(jsCode)", scEval, tinyJS); // execute the given string and return the result
 	tinyJS->addNative("function trace()", scTrace, tinyJS);
-	tinyJS->addNative("function Object.dump()", scObjectDump, 0);
-	tinyJS->addNative("function Object.clone()", scObjectClone, 0);
-	tinyJS->addNative("function Math.rand()", scMathRand, 0);
-	tinyJS->addNative("function Math.randInt(min, max)", scMathRandInt, 0);
-	tinyJS->addNative("function charToInt(ch)", scCharToInt, 0); //  convert a character to an int - get its value
-	tinyJS->addNative("function String.indexOf(search)", scStringIndexOf, 0); // find the position of a string in a string, -1 if not
-	tinyJS->addNative("function String.substring(lo,hi)", scStringSubstring, 0);
-	tinyJS->addNative("function String.charAt(pos)", scStringCharAt, 0);
+	tinyJS->addNative("function Object.prototype.dump()", scObjectDump, 0);
+	tinyJS->addNative("function Object.prototype.clone()", scObjectClone, 0);
+
+//	tinyJS->addNative("function charToInt(ch)", scCharToInt, 0); //  convert a character to an int - get its value
+//	tinyJS->addNative("function String.prototype.indexOf(search)", scStringIndexOf, 0); // find the position of a string in a string, -1 if not
+//	tinyJS->addNative("function String.prototype.substring(lo,hi)", scStringSubstring, 0);
+//	tinyJS->addNative("function String.prototype.charAt(pos)", scStringCharAt, 0);
+//	tinyJS->addNative("function String.prototype.charCodeAt(pos)", scStringCharCodeAt, 0);
+//	tinyJS->addNative("function String.prototype.fromCharCode(char)", scStringFromCharCode, 0);
+//	tinyJS->addNative("function String.prototype.split(separator,limit)", scStringSplit, 0);
+
 	tinyJS->addNative("function Integer.parseInt(str)", scIntegerParseInt, 0); // string to int
 	tinyJS->addNative("function Integer.valueOf(str)", scIntegerValueOf, 0); // value of a single character
 	tinyJS->addNative("function JSON.stringify(obj, replacer)", scJSONStringify, 0); // convert to JSON. replacer is ignored at the moment
 	// JSON.parse is left out as you can (unsafely!) use eval instead
+	tinyJS->addNative("function Array.prototype.contains(obj)", scArrayContains, 0);
+	tinyJS->addNative("function Array.prototype.remove(obj)", scArrayRemove, 0);
+	tinyJS->addNative("function Array.prototype.join(separator)", scArrayJoin, 0);
 }
 

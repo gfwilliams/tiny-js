@@ -26,13 +26,13 @@
 /*
  * This is a program to run all the tests in the tests folder...
  */
-//#define _AFXDLL
+
 #ifdef _DEBUG
 #	ifdef _MSC_VER
 #		ifdef USE_DEBUG_NEW
-#			include "targetver.h"
-#			include <afx.h>
-#			define new DEBUG_NEW
+//#			include "targetver.h"
+//#			include <afx.h>
+//#			define new DEBUG_NEW
 #		endif
 #	else
 #		define DEBUG_MEMORY 1
@@ -42,13 +42,18 @@
 #include "TinyJS.h"
 #include "TinyJS_Functions.h"
 #include "TinyJS_MathFunctions.h"
+#include "TinyJS_StringFunctions.h"
 #include <assert.h>
 #include <sys/stat.h>
 #include <string>
 #include <sstream>
 #include <stdio.h>
 
+//#define WITH_TIME_LOGGER
 
+#ifdef WITH_TIME_LOGGER
+#	include "time_logger.h"
+#endif
 //#define INSANE_MEMORY_DEBUG
 
 #ifdef INSANE_MEMORY_DEBUG
@@ -195,7 +200,18 @@ void memtracing_kill() {
     }
 }
 #endif // INSANE_MEMORY_DEBUG
-
+class end { // this is for VisualStudio debugging stuff. It's holds the console open up to ENTER is pressed
+public:
+	end() : active(false) {}
+ 	~end()
+	{
+		if(active) {
+			printf("press Enter (end)");
+			getchar();
+		}
+	}
+	bool active;
+} end;
 
 bool run_test(const char *filename) {
   printf("TEST %s ", filename);
@@ -220,25 +236,31 @@ bool run_test(const char *filename) {
   CTinyJS s;
   registerFunctions(&s);
   registerMathFunctions(&s);
-  s.root->addChild("result", new CScriptVar("0",SCRIPTVAR_INTEGER));
+  registerStringFunctions(&s);
+  s.getRoot()->addChild("result", s.newScriptVar(0));
+#ifdef WITH_TIME_LOGGER
+  TimeLoggerCreate(Test, true, filename);
+#endif
   try {
     s.execute(buffer);
   } catch (CScriptException *e) {
     printf("ERROR: %s\n", e->text.c_str());
 	delete e;
   }
-  bool pass = s.root->getParameter("result")->getBool();
+  bool pass = s.getRoot()->getParameter("result")->getBool();
+#ifdef WITH_TIME_LOGGER
+  TimeLoggerLogprint(Test);
+#endif
 
   if (pass)
     printf("PASS\n");
   else {
     char fn[64];
-    sprintf(fn, "%s.fail.js", filename);
+    sprintf(fn, "%s.fail.txt", filename);
     FILE *f = fopen(fn, "wt");
     if (f) {
-      std::ostringstream symbols;
-      s.root->getJSON(symbols);
-      fprintf(f, "%s", symbols.str().c_str());
+      std::string symbols = s.getRoot()->getParsableString("", "   ");
+      fprintf(f, "%s", symbols.c_str());
       fclose(f);
     }
 
@@ -256,25 +278,38 @@ int main(int argc, char **argv)
 #endif
   printf("TinyJS test runner\n");
   printf("USAGE:\n");
-  printf("   ./run_tests test.js       : run just one test\n");
-  printf("   ./run_tests               : run all tests\n");
-  if (argc==2) {
-    return !run_test(argv[1]);
+  printf("   ./run_tests [-k] test.js [test2.js]   : run tests\n");
+  printf("   ./run_tests [-k]                      : run all tests\n");
+  int arg_num = 1;
+  bool runs = false;
+  for(; arg_num<argc; arg_num++) {
+    if(argv[arg_num][0] == '-') {
+      if(strcmp(argv[arg_num], "-k")==0)
+			end.active = true;
+	 } else {
+		run_test(argv[arg_num]);
+		runs=true;
+	 }
+  }
+  if (runs) {
+    return 0;
   }
 
   int count = 0;
   int passed = 0;
-  const char *mask = "tests/test%03d.42.js";
+  const char *mask[] = {"tests/test%03d%s.js", "tests/42tests/test%03d%s.js"};
+#ifdef WITH_TIME_LOGGER
+  TimeLoggerCreate(Tests, true);
+#endif
   for(int js42 = 0; js42<2; js42++) {
     int test_num = 1;
     while (test_num<1000) {
       char fn[32];
-      sprintf(fn, mask, test_num);
-      // check if the file exists - if not, try 42TinyJS-spezial or assume we're at the end of our tests
+      sprintf(fn, mask[js42], test_num, ".42");
+      // check if the file exists - if not, assume we're at the end of our tests
       FILE *f = fopen(fn,"r");
       if (!f) {
-        if(js42) break;
-        sprintf(fn, "tests/test%03d.js", test_num);
+        sprintf(fn, mask[js42], test_num, "");
         f = fopen(fn,"r");
         if(!f) break;
       }
@@ -285,16 +320,18 @@ int main(int argc, char **argv)
         count++;
         test_num++;
     }
-    mask = "tests/42tests/test%03d.js";
   }
   printf("Done. %d tests, %d pass, %d fail\n", count, passed, count-passed);
+#ifdef WITH_TIME_LOGGER
+  TimeLoggerLogprint(Tests);
+#endif
 #ifdef INSANE_MEMORY_DEBUG
     memtracing_kill();
 #endif
 #ifdef _WIN32
 #ifdef _DEBUG
 //  _CrtDumpMemoryLeaks();
-/*
+  /*
   no dump momoryleaks here
   _CrtSetDbgFlag(..) force dump memoryleake after call of all global deconstructors
 */

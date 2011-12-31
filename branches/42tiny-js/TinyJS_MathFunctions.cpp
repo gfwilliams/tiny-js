@@ -10,255 +10,363 @@
 #include <math.h>
 #include <cstdlib>
 #include <sstream>
+#include <ctime>
 #include "TinyJS_MathFunctions.h"
 
 using namespace std;
 
 #define k_E                 exp(1.0)
 #define k_PI                3.1415926535897932384626433832795
+#define k_LN2               log((double)2)
+#define k_LN10              log((double)10)
+#define k_LOG2E             (log(k_E)/log((double)2))
+#define k_LOG10E            log10(k_E)
+#define k_SQRT1_2           sqrt((double)0.5)
+#define k_SQRT2             sqrt((double)2)
 
 #define F_ABS(a)            ((a)>=0 ? (a) : (-(a)))
 #define F_MIN(a,b)          ((a)>(b) ? (b) : (a))
 #define F_MAX(a,b)          ((a)>(b) ? (a) : (b))
 #define F_SGN(a)            ((a)>0 ? 1 : ((a)<0 ? -1 : 0 ))
 #define F_RNG(a,min,max)    ((a)<(min) ? min : ((a)>(max) ? max : a ))
-#define F_ROUND(a)          ((a)>0 ? (int) ((a)+0.5) : (int) ((a)-0.5) )
  
 //CScriptVar shortcut macro
 #define scIsInt(a)          ( c->getParameter(a)->isInt() )
 #define scIsDouble(a)       ( c->getParameter(a)->isDouble() )  
 #define scGetInt(a)         ( c->getParameter(a)->getInt() )
 #define scGetDouble(a)      ( c->getParameter(a)->getDouble() )  
-#define scReturnInt(a)      ( c->getReturnVar()->setInt(a) )
-#define scReturnDouble(a)   ( c->getReturnVar()->setDouble(a) )  
+#define scReturnInt(a)      ( c->setReturnVar(c->newScriptVar((int)a)) )
+#define scReturnDouble(a)   ( c->setReturnVar(c->newScriptVar((double)a)) )
+#define scReturnNaN()       ( c->setReturnVar(c->newScriptVar(NaN)) )
 
 #ifdef _MSC_VER
 namespace
 {
-    double asinh( const double &value )
-    {
-        double returned;
+	 double asinh( const double &value )
+	 {
+		  double returned;
 
-        if(value>0)
-        returned = log(value + sqrt(value * value + 1));
-        else
-        returned = -log(-value + sqrt(value * value + 1));
+		  if(value>0)
+		  returned = log(value + sqrt(value * value + 1));
+		  else
+		  returned = -log(-value + sqrt(value * value + 1));
 
-        return(returned);
-    }
+		  return(returned);
+	 }
 
-    double acosh( const double &value )
-    {
-        double returned;
+	 double acosh( const double &value )
+	 {
+		  double returned;
 
-        if(value>0)
-        returned = log(value + sqrt(value * value - 1));
-        else
-        returned = -log(-value + sqrt(value * value - 1));
+		  if(value>0)
+		  returned = log(value + sqrt(value * value - 1));
+		  else
+		  returned = -log(-value + sqrt(value * value - 1));
 
-        return(returned);
-    }
+		  return(returned);
+	 }
 }
 #endif
 
+#define GET_PARAMETER_AS_NUMERIC_VAR(v,n) CScriptVarSmartLink v = c->getParameter(n)->getNumericVar()
+#define RETURN_NAN_IS_NAN(v) do{ if((*v)->isNaN()) { c->setReturnVar(v); return; } }while(0)
+#define RETURN_NAN_IS_NAN_OR_INFINITY(v) do{ if((*v)->isNaN() || (*v)->isInfinity()) { c->setReturnVar(v); return; } }while(0)
+#define RETURN_INFINITY_IS_INFINITY(v) do{ if((*v)->isInfinity()) { c->setReturnVar(v); return; } }while(0)
+
+#define GET_DOUBLE(v) (*v)->getDouble()
+
 //Math.abs(x) - returns absolute of given value
-void scMathAbs(CScriptVar *c, void *userdata) {
-    if ( scIsInt("a") ) {
-      scReturnInt( F_ABS( scGetInt("a") ) );
-    } else if ( scIsDouble("a") ) {
-      scReturnDouble( F_ABS( scGetDouble("a") ) );
-    }
+static void scMathAbs(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a);
+	if((*a)->getInt() < 0) {
+		CScriptVarPtr zero = c->newScriptVar(0);
+		c->setReturnVar(zero->mathsOp(a, '-'));
+	} else
+		c->setReturnVar(a);
 }
 
 //Math.round(a) - returns nearest round of given value
-void scMathRound(CScriptVar *c, void *userdata) {
-    if ( scIsInt("a") ) {
-      scReturnInt( F_ROUND( scGetInt("a") ) );
-    } else if ( scIsDouble("a") ) {
-      scReturnDouble( F_ROUND( scGetDouble("a") ) );
-    }
+static void scMathRound(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a); RETURN_INFINITY_IS_INFINITY(a);
+	scReturnInt( (int)floor( GET_DOUBLE(a)+0.5 ) );
+}
+
+//Math.ceil(a) - returns nearest round of given value
+static void scMathCeil(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a); RETURN_INFINITY_IS_INFINITY(a);
+	scReturnInt( (int)ceil( GET_DOUBLE(a) ) );
+}
+
+//Math.floor(a) - returns nearest round of given value
+static void scMathFloor(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a); RETURN_INFINITY_IS_INFINITY(a);
+	scReturnInt( (int)floor( GET_DOUBLE(a) ) );
 }
 
 //Math.min(a,b) - returns minimum of two given values 
-void scMathMin(CScriptVar *c, void *userdata) {
-    if ( (scIsInt("a")) && (scIsInt("b")) ) {
-      scReturnInt( F_MIN( scGetInt("a"), scGetInt("b") ) );
-    } else {
-      scReturnDouble( F_MIN( scGetDouble("a"), scGetDouble("b") ) );
-    }
+static void scMathMin(const CFunctionsScopePtr &c, void *userdata) {
+	int length = c->getParameterLength();
+	CScriptVarSmartLink ret(c->newScriptVar(InfinityPositive));
+	for(int i=0; i<length; i++)
+	{
+		GET_PARAMETER_AS_NUMERIC_VAR(a,i);RETURN_NAN_IS_NAN(a);
+		if((*a)->isInfinity() < 0)  { c->setReturnVar(a); return; } 
+		CScriptVarPtr result = (*a)->mathsOp(ret, '<');
+		if(result->getBool())
+			ret = a;
+	}
+	c->setReturnVar(ret);
 }
 
 //Math.max(a,b) - returns maximum of two given values  
-void scMathMax(CScriptVar *c, void *userdata) {
-    if ( (scIsInt("a")) && (scIsInt("b")) ) {
-      scReturnInt( F_MAX( scGetInt("a"), scGetInt("b") ) );
-    } else {
-      scReturnDouble( F_MAX( scGetDouble("a"), scGetDouble("b") ) );
-    }
+static void scMathMax(const CFunctionsScopePtr &c, void *userdata) {
+	int length = c->getParameterLength();
+	CScriptVarSmartLink ret((CScriptVarPtr)newScriptVar(c->getContext(), Infinity(-1)));
+	for(int i=0; i<length; i++)
+	{
+		GET_PARAMETER_AS_NUMERIC_VAR(a,i);RETURN_NAN_IS_NAN(a);
+		if((*a)->isInfinity() > 0)  { c->setReturnVar(a); return; } 
+		CScriptVarPtr result = (*a)->mathsOp(ret, '>');
+		if(result->getBool())
+			ret = a;
+	}
+	c->setReturnVar(ret);
 }
 
 //Math.range(x,a,b) - returns value limited between two given values  
-void scMathRange(CScriptVar *c, void *userdata) {
-    if ( (scIsInt("x")) ) {
-      scReturnInt( F_RNG( scGetInt("x"), scGetInt("a"), scGetInt("b") ) );
-    } else {
-      scReturnDouble( F_RNG( scGetDouble("x"), scGetDouble("a"), scGetDouble("b") ) );
-    }
+static void scMathRange(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(x,"x"); RETURN_NAN_IS_NAN(x); 
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a); 
+	GET_PARAMETER_AS_NUMERIC_VAR(b,"b"); RETURN_NAN_IS_NAN(b);
+
+	CScriptVarPtr check;
+	bool check_bool;
+
+	check = (*a)->mathsOp(b, LEX_LEQUAL);
+	check_bool = check->getBool();
+	if(!check_bool) { scReturnNaN(); return; }
+	
+	check = (*x)->mathsOp(a, '<');
+	check_bool = check->getBool(); 
+	if(check_bool) { c->setReturnVar(a); return; }
+
+	check = (*x)->mathsOp(b, '>');
+	check_bool = check->getBool(); 
+	c->setReturnVar((check_bool ? b:x));
 }
 
 //Math.sign(a) - returns sign of given value (-1==negative,0=zero,1=positive)
-void scMathSign(CScriptVar *c, void *userdata) {
-    if ( scIsInt("a") ) {
-      scReturnInt( F_SGN( scGetInt("a") ) );
-    } else if ( scIsDouble("a") ) {
-      scReturnDouble( F_SGN( scGetDouble("a") ) );
-    }
+static void scMathSign(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a); 
+	double a_d = GET_DOUBLE(a);
+	scReturnInt(a_d>0.0?1:a_d<0.0?-1:0);
 }
-
-//Math.PI() - returns PI value
-void scMathPI(CScriptVar *c, void *userdata) {
-    scReturnDouble(k_PI);
+static void init_rand(){
+	static int inited=0;
+	if(!inited) {
+		inited = 1;
+		srand((unsigned int)time(NULL));
+	}
+}
+static void scMathRandom(const CFunctionsScopePtr &c, void *) {
+	init_rand();
+	scReturnDouble((double)rand()/RAND_MAX);
 }
 
 //Math.toDegrees(a) - returns degree value of a given angle in radians
-void scMathToDegrees(CScriptVar *c, void *userdata) {
-    scReturnDouble( (180.0/k_PI)*( scGetDouble("a") ) );
+static void scMathToDegrees(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a); RETURN_INFINITY_IS_INFINITY(a); 
+	scReturnDouble( (180.0/k_PI)*( GET_DOUBLE(a) ) );
 }
 
 //Math.toRadians(a) - returns radians value of a given angle in degrees
-void scMathToRadians(CScriptVar *c, void *userdata) {
-    scReturnDouble( (k_PI/180.0)*( scGetDouble("a") ) );
+static void scMathToRadians(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a); RETURN_INFINITY_IS_INFINITY(a); 
+	scReturnDouble( (k_PI/180.0)*( GET_DOUBLE(a) ) );
 }
 
 //Math.sin(a) - returns trig. sine of given angle in radians
-void scMathSin(CScriptVar *c, void *userdata) {
-    scReturnDouble( sin( scGetDouble("a") ) );
+static void scMathSin(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN_OR_INFINITY(a); 
+	scReturnDouble( sin( GET_DOUBLE(a) ) );
 }
 
 //Math.asin(a) - returns trig. arcsine of given angle in radians
-void scMathASin(CScriptVar *c, void *userdata) {
-    scReturnDouble( asin( scGetDouble("a") ) );
+static void scMathASin(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN_OR_INFINITY(a); 
+	scReturnDouble( asin( GET_DOUBLE(a) ) );
 }
 
 //Math.cos(a) - returns trig. cosine of given angle in radians
-void scMathCos(CScriptVar *c, void *userdata) {
-    scReturnDouble( cos( scGetDouble("a") ) );
+static void scMathCos(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN_OR_INFINITY(a); 
+	scReturnDouble( cos( GET_DOUBLE(a) ) );
 }
 
 //Math.acos(a) - returns trig. arccosine of given angle in radians
-void scMathACos(CScriptVar *c, void *userdata) {
-    scReturnDouble( acos( scGetDouble("a") ) );
+static void scMathACos(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN_OR_INFINITY(a); 
+	scReturnDouble( acos( GET_DOUBLE(a) ) );
 }
 
 //Math.tan(a) - returns trig. tangent of given angle in radians
-void scMathTan(CScriptVar *c, void *userdata) {
-    scReturnDouble( tan( scGetDouble("a") ) );
+static void scMathTan(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN_OR_INFINITY(a); 
+	scReturnDouble( tan( GET_DOUBLE(a) ) );
 }
 
 //Math.atan(a) - returns trig. arctangent of given angle in radians
-void scMathATan(CScriptVar *c, void *userdata) {
-    scReturnDouble( atan( scGetDouble("a") ) );
+static void scMathATan(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN_OR_INFINITY(a); 
+	scReturnDouble( atan( GET_DOUBLE(a) ) );
 }
 
 //Math.sinh(a) - returns trig. hyperbolic sine of given angle in radians
-void scMathSinh(CScriptVar *c, void *userdata) {
-    scReturnDouble( sinh( scGetDouble("a") ) );
+static void scMathSinh(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN_OR_INFINITY(a); 
+	scReturnDouble( sinh( GET_DOUBLE(a) ) );
 }
 
 //Math.asinh(a) - returns trig. hyperbolic arcsine of given angle in radians
-void scMathASinh(CScriptVar *c, void *userdata) {
-    scReturnDouble( asinh( scGetDouble("a") ) );
+static void scMathASinh(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN_OR_INFINITY(a); 
+	scReturnDouble( asinh( GET_DOUBLE(a) ) );
 }
 
 //Math.cosh(a) - returns trig. hyperbolic cosine of given angle in radians
-void scMathCosh(CScriptVar *c, void *userdata) {
-    scReturnDouble( cosh( scGetDouble("a") ) );
+static void scMathCosh(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN_OR_INFINITY(a); 
+	scReturnDouble( cosh( GET_DOUBLE(a) ) );
 }
 
 //Math.acosh(a) - returns trig. hyperbolic arccosine of given angle in radians
-void scMathACosh(CScriptVar *c, void *userdata) {
-    scReturnDouble( acosh( scGetDouble("a") ) );
+static void scMathACosh(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN_OR_INFINITY(a); 
+	scReturnDouble( acosh( GET_DOUBLE(a) ) );
 }
 
 //Math.tanh(a) - returns trig. hyperbolic tangent of given angle in radians
-void scMathTanh(CScriptVar *c, void *userdata) {
-    scReturnDouble( tanh( scGetDouble("a") ) );
+static void scMathTanh(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN_OR_INFINITY(a); 
+	scReturnDouble( tanh( GET_DOUBLE(a) ) );
 }
 
 //Math.atan(a) - returns trig. hyperbolic arctangent of given angle in radians
-void scMathATanh(CScriptVar *c, void *userdata) {
-    scReturnDouble( atan( scGetDouble("a") ) );
-}
-
-//Math.E() - returns E Neplero value
-void scMathE(CScriptVar *c, void *userdata) {
-    scReturnDouble(k_E);
+static void scMathATanh(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN_OR_INFINITY(a); 
+	scReturnDouble( atan( GET_DOUBLE(a) ) );
 }
 
 //Math.log(a) - returns natural logaritm (base E) of given value
-void scMathLog(CScriptVar *c, void *userdata) {
-    scReturnDouble( log( scGetDouble("a") ) );
+static void scMathLog(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a); 
+	int a_i = (*a)->isInfinity();
+	double a_d = (*a)->getDouble();
+	if(a_i>0) { c->setReturnVar(c->newScriptVar(InfinityPositive)); return; }
+	else if(a_i<0 || a_d<0.0) { scReturnNaN(); return; }
+	scReturnDouble( log( a_d ) );
 }
 
 //Math.log10(a) - returns logaritm(base 10) of given value
-void scMathLog10(CScriptVar *c, void *userdata) {
-    scReturnDouble( log10( scGetDouble("a") ) );
+static void scMathLog10(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a); 
+	int a_i = (*a)->isInfinity();
+	double a_d = (*a)->getDouble();
+	if(a_i>0) { c->setReturnVar(c->newScriptVar(InfinityPositive)); return; }
+	else if(a_i<0 || a_d<0.0) { c->setReturnVar(c->newScriptVar(NaN)); return; }
+	scReturnDouble( log10( a_d ) );
 }
 
 //Math.exp(a) - returns e raised to the power of a given number
-void scMathExp(CScriptVar *c, void *userdata) {
-    scReturnDouble( exp( scGetDouble("a") ) );
+static void scMathExp(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a);
+	int a_i = (*a)->isInfinity();
+	if(a_i>0) { c->setReturnVar(c->newScriptVar(InfinityPositive)); return; }
+	else if(a_i<0) { c->setReturnVar(c->newScriptVar(0)); return; }
+	scReturnDouble( exp( GET_DOUBLE(a) ) );
 }
 
 //Math.pow(a,b) - returns the result of a number raised to a power (a)^(b)
-void scMathPow(CScriptVar *c, void *userdata) {
-    scReturnDouble( pow( scGetDouble("a"), scGetDouble("b") ) );
+static void scMathPow(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a);
+	GET_PARAMETER_AS_NUMERIC_VAR(b,"b"); RETURN_NAN_IS_NAN(b); 
+	int a_i = (*a)->isInfinity(), b_i = (*b)->isInfinity();
+	double a_d = (*a)->getDouble(), b_d = (*b)->getDouble();
+	if(b_i>0) {
+		if(a_i || a_d>1.0 || a_d<-1.0) { c->setReturnVar(c->newScriptVar(InfinityPositive)); return; }
+		else if(a_i==0 && (a_d==1.0 || a_d==-1.0)) { c->setReturnVar(c->newScriptVar(1)); return; }
+		if(a_i==0 && a_d<1.0 && a_d>-1.0) { c->setReturnVar(c->newScriptVar(0)); return; }
+	} else if(b_i<0) { c->setReturnVar(c->newScriptVar(0)); return; }
+	else if(b_d == 0.0)  { c->setReturnVar(c->newScriptVar(1)); return; }
+
+	if(a_i) a_d = a_i;
+	double result = pow(a_d, b_d);
+	if(a_i) { c->setReturnVar(c->newScriptVar(Infinity(result>=0.0?1:-1))); return; }
+	scReturnDouble( result );
 }
 
 //Math.sqr(a) - returns square of given value
-void scMathSqr(CScriptVar *c, void *userdata) {
-    scReturnDouble( ( scGetDouble("a") * scGetDouble("a") ) );
+static void scMathSqr(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a); RETURN_INFINITY_IS_INFINITY(a); 
+	scReturnDouble( ( GET_DOUBLE(a) * GET_DOUBLE(a) ) );
 }
 
 //Math.sqrt(a) - returns square root of given value
-void scMathSqrt(CScriptVar *c, void *userdata) {
-    scReturnDouble( sqrt( scGetDouble("a") ) );
+static void scMathSqrt(const CFunctionsScopePtr &c, void *userdata) {
+	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a); RETURN_INFINITY_IS_INFINITY(a); 
+	scReturnDouble( sqrt( GET_DOUBLE(a) ) );
 }
 
 // ----------------------------------------------- Register Functions
 void registerMathFunctions(CTinyJS *tinyJS) {
-     
-    // --- Math and Trigonometry functions ---
-    tinyJS->addNative("function Math.abs(a)", scMathAbs, 0);
-    tinyJS->addNative("function Math.round(a)", scMathRound, 0);
-    tinyJS->addNative("function Math.min(a,b)", scMathMin, 0);
-    tinyJS->addNative("function Math.max(a,b)", scMathMax, 0);
-    tinyJS->addNative("function Math.range(x,a,b)", scMathRange, 0);
-    tinyJS->addNative("function Math.sign(a)", scMathSign, 0);
-    
-    tinyJS->addNative("function Math.PI()", scMathPI, 0);
-    tinyJS->addNative("function Math.toDegrees(a)", scMathToDegrees, 0);
-    tinyJS->addNative("function Math.toRadians(a)", scMathToRadians, 0);
-    tinyJS->addNative("function Math.sin(a)", scMathSin, 0);
-    tinyJS->addNative("function Math.asin(a)", scMathASin, 0);
-    tinyJS->addNative("function Math.cos(a)", scMathCos, 0);
-    tinyJS->addNative("function Math.acos(a)", scMathACos, 0);
-    tinyJS->addNative("function Math.tan(a)", scMathTan, 0);
-    tinyJS->addNative("function Math.atan(a)", scMathATan, 0);
-    tinyJS->addNative("function Math.sinh(a)", scMathSinh, 0);
-    tinyJS->addNative("function Math.asinh(a)", scMathASinh, 0);
-    tinyJS->addNative("function Math.cosh(a)", scMathCosh, 0);
-    tinyJS->addNative("function Math.acosh(a)", scMathACosh, 0);
-    tinyJS->addNative("function Math.tanh(a)", scMathTanh, 0);
-    tinyJS->addNative("function Math.atanh(a)", scMathATanh, 0);
-       
-    tinyJS->addNative("function Math.E()", scMathE, 0);
-    tinyJS->addNative("function Math.log(a)", scMathLog, 0);
-    tinyJS->addNative("function Math.log10(a)", scMathLog10, 0);
-    tinyJS->addNative("function Math.exp(a)", scMathExp, 0);
-    tinyJS->addNative("function Math.pow(a,b)", scMathPow, 0);
-    
-    tinyJS->addNative("function Math.sqr(a)", scMathSqr, 0);
-    tinyJS->addNative("function Math.sqrt(a)", scMathSqrt, 0);    
+
+	 CScriptVarLink *Math = tinyJS->getRoot()->addChild("Math", tinyJS->newScriptVar(Object));
+
+	 // --- Math and Trigonometry functions ---
+	 tinyJS->addNative("function Math.abs(a)", scMathAbs, 0);
+	 tinyJS->addNative("function Math.round(a)", scMathRound, 0);
+	 tinyJS->addNative("function Math.ceil(a)", scMathCeil, 0);
+	 tinyJS->addNative("function Math.floor(a)", scMathFloor, 0);
+	 tinyJS->addNative("function Math.min()", scMathMin, 0);
+	 tinyJS->addNative("function Math.max()", scMathMax, 0);
+	 tinyJS->addNative("function Math.range(x,a,b)", scMathRange, 0);
+	 tinyJS->addNative("function Math.sign(a)", scMathSign, 0);
+	 tinyJS->addNative("function Math.random(a)", scMathRandom, 0);
+
+
+// atan2, ceil, floor, random, round, 
+
+	 (*Math)->addChild("LN2", tinyJS->newScriptVar(k_LN2), SCRIPTVARLINK_ENUMERABLE);
+	 (*Math)->addChild("LN10", tinyJS->newScriptVar(k_LN10), SCRIPTVARLINK_ENUMERABLE);
+	 (*Math)->addChild("LOG2E", tinyJS->newScriptVar(k_LOG2E), SCRIPTVARLINK_ENUMERABLE);
+	 (*Math)->addChild("LOG10E", tinyJS->newScriptVar(k_LOG10E), SCRIPTVARLINK_ENUMERABLE);
+	 (*Math)->addChild("SQRT1_2", tinyJS->newScriptVar(k_SQRT1_2), SCRIPTVARLINK_ENUMERABLE);
+	 (*Math)->addChild("SQRT2", tinyJS->newScriptVar(k_SQRT2), SCRIPTVARLINK_ENUMERABLE);
+	 (*Math)->addChild("PI", tinyJS->newScriptVar(k_PI), SCRIPTVARLINK_ENUMERABLE);
+//    tinyJS->addNative("function Math.PI()", scMathPI, 0);
+	 tinyJS->addNative("function Math.toDegrees(a)", scMathToDegrees, 0);
+	 tinyJS->addNative("function Math.toRadians(a)", scMathToRadians, 0);
+	 tinyJS->addNative("function Math.sin(a)", scMathSin, 0);
+	 tinyJS->addNative("function Math.asin(a)", scMathASin, 0);
+	 tinyJS->addNative("function Math.cos(a)", scMathCos, 0);
+	 tinyJS->addNative("function Math.acos(a)", scMathACos, 0);
+	 tinyJS->addNative("function Math.tan(a)", scMathTan, 0);
+	 tinyJS->addNative("function Math.atan(a)", scMathATan, 0);
+	 tinyJS->addNative("function Math.sinh(a)", scMathSinh, 0);
+	 tinyJS->addNative("function Math.asinh(a)", scMathASinh, 0);
+	 tinyJS->addNative("function Math.cosh(a)", scMathCosh, 0);
+	 tinyJS->addNative("function Math.acosh(a)", scMathACosh, 0);
+	 tinyJS->addNative("function Math.tanh(a)", scMathTanh, 0);
+	 tinyJS->addNative("function Math.atanh(a)", scMathATanh, 0);
+		 
+	 (*Math)->addChild("E", tinyJS->newScriptVar(k_E), SCRIPTVARLINK_ENUMERABLE);
+//	 tinyJS->addNative("function Math.E()", scMathE, 0);
+	 tinyJS->addNative("function Math.log(a)", scMathLog, 0);
+	 tinyJS->addNative("function Math.log10(a)", scMathLog10, 0);
+	 tinyJS->addNative("function Math.exp(a)", scMathExp, 0);
+	 tinyJS->addNative("function Math.pow(a,b)", scMathPow, 0);
+	 
+	 tinyJS->addNative("function Math.sqr(a)", scMathSqr, 0);
+	 tinyJS->addNative("function Math.sqrt(a)", scMathSqrt, 0);    
   
 }

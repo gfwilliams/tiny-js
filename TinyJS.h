@@ -462,11 +462,11 @@ public:
 	CScriptVarPointer(const CScriptVarLink *Link);
 	CScriptVarPointer(const CScriptVarSmartLink &Link);
 	//: var(dynamic_cast<C*>(Var)) { if(Var) ASSERT(var); if(var) var->ref(); }
-	~CScriptVarPointer() { if(var) var->unref(0); }
+	~CScriptVarPointer() { if(var) var->unref(); }
 	CScriptVarPointer(const CScriptVarPointer<C> &VarPtr) : var(0) { *this = VarPtr; }
 	CScriptVarPointer& operator=(const CScriptVarPointer<C> &VarPtr) {
 		if(var != VarPtr.var) {
-			if(var) var->unref(0);
+			if(var) var->unref();
 			var = VarPtr.var; if(var) var->ref();
 		}			
 		return *this;
@@ -532,20 +532,6 @@ public:
 };
 template<typename C>
 CScriptVarPointer<C>::CScriptVarPointer(const CScriptVarLink *Link) : var(0) { if(Link) { var = dynamic_cast<C*>(Link->operator->()); ASSERT(var); } if(var) var->ref(); }
-
-// ----------------------------------------------------------------------------------- RECURSION
-typedef std::vector<CScriptVar *> RECURSION_VECT;
-typedef std::set<CScriptVar *> RECURSION_SET;
-class RECURSION_SET_VAR
-{
-public:
-	RECURSION_SET_VAR(CScriptVar *PathBase) : sumRefs(0), sumInternalRefs(0), recursionPathBase(PathBase) {}
-	RECURSION_SET recursionSet;		///< contains all Vars in the Set
-	int sumRefs;							///< Sum of Refs
-	int sumInternalRefs;					///< Sum of Internal Refs --> sumRefs - sumInternalRefs = sumExternalRefs
-	CScriptVar *recursionPathBase;	///< temporary used in recoursionCheck() and trace()
-};
-
 
 // ----------------------------------------------------------------------------------- CSCRIPTVAR
 typedef	std::vector<CScriptVarLink*> SCRIPTVAR_CHILDS_t;
@@ -629,16 +615,15 @@ public:
 	CScriptVarPtr mathsOp(const CScriptVarPtr &b, int op); ///< do a maths op with another script variable
 
 	void trace(const std::string &name = ""); ///< Dump out the contents of this using trace
-	void trace(std::string &indentStr, const std::string &name = ""); ///< Dump out the contents of this using trace
+	void trace(std::string &indentStr, int uniqueID, const std::string &name = ""); ///< Dump out the contents of this using trace
 	std::string getFlagsAsString(); ///< For debugging - just dump a string version of the flags
 //	void getJSON(std::ostringstream &destination, const std::string linePrefix=""); ///< Write out all the JS code needed to recreate this script variable to the stream (as JSON)
 
 	SCRIPTVAR_CHILDS_t Childs;
 
 	/// For memory management/garbage collection
-	void recoursionCheck(CScriptVar *Owner=0);
 	CScriptVar *ref(); ///< Add reference to this variable
-	void unref(CScriptVar* Owner); ///< Remove a reference, and delete this variable if required
+	void unref(); ///< Remove a reference, and delete this variable if required
 	int getRefs(); ///< Get the number of references to this script variable
 	template<class T>
 	operator T *(){ T* ret = dynamic_cast<T*>(this); ASSERT(ret!=0); return ret; }
@@ -650,16 +635,9 @@ public:
 	void setTempraryID(int ID) { temporaryID = ID; }
 	void setTempraryIDrecursive(int ID);
 	int getTempraryID() { return temporaryID; }
-private: 
-	RECURSION_SET_VAR *unrefInternal();
 protected:
 	CTinyJS *context;
 	int refs; ///< The number of references held to this - used for garbage collection
-	int internalRefs;
-
-	void recoursionCheck(RECURSION_VECT &recursionPath);
-	int recursionFlag;
-	RECURSION_SET_VAR *recursionSet;
 	CScriptVar *prev;
 public:
 	CScriptVar *next;
@@ -1207,40 +1185,21 @@ private:
 	CScriptTokenizer *t;       /// current tokenizer
 	int runtimeFlags;
 	std::vector<std::string> loop_labels;
-//	std::vector<CScriptVar*> _scopes; /// stack of scopes when parsing
-	std::vector<CScriptVarScopePtr>_scopes;
+	std::vector<CScriptVarScopePtr>scopes;
 	CScriptVarScopePtr root;
 
-	const CScriptVarScopePtr &scope() { return _scopes.back(); }
-/*
-	const CScriptVarScopePtr &push_FncScope(const CScriptVarScopePtr &Scope) { 
-		_scopes.push_back(Scope); 
-		return scope();
-	}
+	const CScriptVarScopePtr &scope() { return scopes.back(); }
 
-	const CScriptVarScopePtr &push_newLetScope() {
-		return _scopes.back() = ::newScriptVar(this, ScopeLet, _scopes.back()); 
-	}
-	const CScriptVarScopePtr &push_newWithScope(const CScriptVarPtr &With) { 
-		return _scopes.back() = ::newScriptVar(this, ScopeWith, _scopes.back(), With); 
-	}
-*/
-/*
-	void pop_Scope() { 
-		CScriptVarScopePtr parent = _scopes.back()->getParent();
-		if(parent) _scopes.back() = parent; else _scopes.pop_back() ;
-	}
-*/
 	class CScopeControl {
 	private:
 		CScopeControl(const CScopeControl& Copy); // no copy
 		CScopeControl& operator =(const CScopeControl& Copy);
 	public:
 		CScopeControl(CTinyJS* Context) : context(Context), count(0) {} 
-		~CScopeControl() { while(count--) {CScriptVarScopePtr parent = context->_scopes.back()->getParent(); if(parent) context->_scopes.back() = parent; else context->_scopes.pop_back() ;} } 
-		void addFncScope(const CScriptVarScopePtr &Scope) { context->_scopes.push_back(Scope); count++; }
-		void addLetScope() {	context->_scopes.back() = ::newScriptVar(context, ScopeLet, context->_scopes.back()); count++; }
-		void addWithScope(const CScriptVarPtr &With) { context->_scopes.back() = ::newScriptVar(context, ScopeWith, context->_scopes.back(), With); count++; }  
+		~CScopeControl() { while(count--) {CScriptVarScopePtr parent = context->scopes.back()->getParent(); if(parent) context->scopes.back() = parent; else context->scopes.pop_back() ;} } 
+		void addFncScope(const CScriptVarScopePtr &Scope) { context->scopes.push_back(Scope); count++; }
+		void addLetScope() {	context->scopes.back() = ::newScriptVar(context, ScopeLet, context->scopes.back()); count++; }
+		void addWithScope(const CScriptVarPtr &With) { context->scopes.back() = ::newScriptVar(context, ScopeWith, context->scopes.back(), With); count++; }  
 	private:
 		CTinyJS *context;
 		int		count;
@@ -1312,6 +1271,7 @@ private:
 
 	void native_Object(const CFunctionsScopePtr &c, void *data);
 	void native_String(const CFunctionsScopePtr &c, void *data);
+	void native_Number(const CFunctionsScopePtr &c, void *data);
 	void native_Array(const CFunctionsScopePtr &c, void *data);
 
 

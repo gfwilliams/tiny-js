@@ -1476,7 +1476,7 @@ CScriptVarLink::~CScriptVarLink() {
 #if DEBUG_MEMORY
 	mark_deallocated(this);
 #endif
-	var->unref(this->owner);
+	var->unref();
 }
 
 CScriptVarPtr CScriptVarLink::getValue() {
@@ -1504,11 +1504,10 @@ void CScriptVarLink::replaceWith(const CScriptVarPtr &newVar) {
 			ASSERT(this->owner);
 			(*setter)->getContext()->callFunction(setter, Params, owner, execute);
 		}
-	} else {
+	} else if(var){
 		CScriptVar *oldVar = var;
 		var = newVar->ref();
-		oldVar->unref(owner);
-		if(owner) var->recoursionCheck(owner);
+		oldVar->unref();
 	}
 }
 
@@ -1530,9 +1529,6 @@ CScriptVar::CScriptVar(CTinyJS *Context, const CScriptVarPtr &Prototype) : conte
 	context->first = this;
 	prev = 0;
 	refs = 0;
-	internalRefs = 0;
-	recursionFlag = 0;
-	recursionSet = 0;
 	if(Prototype)
 		addChild(TINYJS___PROTO___VAR, Prototype, 0);
 	else if(context->objectPrototype)
@@ -1551,9 +1547,6 @@ CScriptVar::CScriptVar(const CScriptVar &Copy) : context(Copy.context), temporar
 	context->first = this;
 	prev = 0;
 	refs = 0;
-	internalRefs = 0;
-	recursionFlag = 0;
-	recursionSet = 0;
 	SCRIPTVAR_CHILDS_cit it;
 	for(it = Copy.Childs.begin(); it!= Copy.Childs.end(); ++it) {
 		addChild((*it)->name, (*it), (*it)->flags);
@@ -1705,7 +1698,6 @@ CScriptVarLink *CScriptVar::addChild(const string &childName, const CScriptVarPt
 	if(it == Childs.end() || (*it)->name != childName) {
 		it = Childs.insert(it, link);
 	}
-	(*link)->recoursionCheck(this);
 	return link;
 }
 CScriptVarLink *CScriptVar::addChildNoDup(const string &childName, const CScriptVarPtr &child, int linkFlags /*= SCRIPTVARLINK_DEFAULT*/) {
@@ -1722,7 +1714,6 @@ CScriptVarLink *CScriptVar::addChildNoDup(const string &childName, const CScript
 		if(it == Childs.end() || (*it)->name != childName) {
 			it = Childs.insert(it, link);
 		}
-		(*link)->recoursionCheck(this);
 	}
 
 	return link;
@@ -1974,48 +1965,29 @@ CScriptVarPtr CScriptVar::mathsOp(const CScriptVarPtr &b, int op) {
 
 void CScriptVar::trace(const string &name) {
 	string indentStr;
-	trace(indentStr, name);
+	int uniqueID = context->getUniqueID();
+	trace(indentStr, uniqueID, name);
 }
-void CScriptVar::trace(string &indentStr, const string &name) {
+void CScriptVar::trace(string &indentStr, int uniqueID, const string &name) {
 	string indent = "  ";
-	if(recursionSet) {
-		if(recursionFlag) {
-			int pos = recursionFlag>>12;
-			string indent_r = indentStr.substr(0, pos+1) + string(indentStr.length()-(pos+1), '-');
-			TRACE("%s'%s' = '%s' %s\n",
-					indent_r.c_str(),
-					name.c_str(),
-					getString().c_str(),
-					getFlagsAsString().c_str());
-
-			if((recursionFlag&0xfff) == 1) {
-				indentStr.replace(pos,1," ");
-				recursionFlag = 0;
-			} else
-				recursionFlag--;
-			return;
-		} else if(!recursionSet->recursionPathBase || internalRefs>1) {
-			indent = "| ";
-			recursionSet->recursionPathBase = this;
-		}
-		recursionFlag = indentStr.length()<<12 | (internalRefs&0xfff) ;
-	}
-	TRACE("%s'%s' = '%s' %s\n",
+	char *extra="";
+	if(temporaryID == uniqueID)
+		extra = " recursion detected";
+	TRACE("%s'%s' = '%s' %s%s\n",
 			indentStr.c_str(),
 			name.c_str(),
 			getString().c_str(),
-			getFlagsAsString().c_str());
-
-	indentStr+=indent;
-	for(SCRIPTVAR_CHILDS_it it = Childs.begin(); it != Childs.end(); ++it) {
-		if((*it)->IsEnumerable())
-			(*(*it))->trace(indentStr, (*it)->name);
+			getFlagsAsString().c_str(),
+			extra);
+	if(temporaryID != uniqueID) {
+		temporaryID = uniqueID;
+		indentStr+=indent;
+		for(SCRIPTVAR_CHILDS_it it = Childs.begin(); it != Childs.end(); ++it) {
+			if((*it)->IsEnumerable())
+				(*(*it))->trace(indentStr, uniqueID, (*it)->name);
+		}
+		indentStr = indentStr.substr(0, indentStr.length()-2);
 	}
-	if(recursionSet) {
-		recursionSet->recursionPathBase = 0;
-		recursionFlag = 0;
-	}
-	indentStr = indentStr.substr(0, indentStr.length()-2);
 }
 
 string CScriptVar::getFlagsAsString() {
@@ -2073,189 +2045,19 @@ void CScriptVar::getJSON(ostringstream &destination, const string linePrefix) {
 
 CScriptVar *CScriptVar::ref() {
 	refs++;
-	if(recursionSet) recursionSet->sumRefs++;
 	return this;
 }
-RECURSION_SET_VAR *CScriptVar::unrefInternal(){
-	RECURSION_SET_VAR *ret=0;
-	if(internalRefs) {
-		ASSERT(recursionSet);
-		internalRefs--;
-		recursionSet->sumInternalRefs--;
-		if(internalRefs==0) {
-			recursionSet->sumRefs -= refs;
-			recursionSet->recursionSet.erase(this);
-			if(recursionSet->recursionSet.size()) {
-				for(SCRIPTVAR_CHILDS_it it = Childs.begin(); it!= Childs.end(); ++it) {
-					if((*(*it))->recursionSet == recursionSet)
-						(*(*it))->unrefInternal();
-				}
-				ret = recursionSet;
-			} else 
-				delete recursionSet;
-			recursionSet = 0;
-		}
-	}
-	return ret;
-}
-void CScriptVar::unref(CScriptVar* Owner) {
+void CScriptVar::unref() {
 	refs--;
 	ASSERT(refs>=0); // printf("OMFG, we have unreffed too far!\n");
-	if(recursionSet) { // this Var is in a Set
-		recursionSet->sumRefs--;
-		if(Owner && Owner->recursionSet == recursionSet) { // internal Ref
-			if(internalRefs==1) {
-				if(refs) {
-					RECURSION_SET_VAR *old_set = unrefInternal();
-
-					if(old_set) { // we have breaked a recursion bu the recursion Set is not destroyed
-						// we needs a redetection of recursions for all Vars in the Set;
-						// first we destroy the Set
-						for(RECURSION_SET::iterator it= old_set->recursionSet.begin(); it!=old_set->recursionSet.end(); ++it) {
-							(*it)->internalRefs = 0;
-							(*it)->recursionSet = 0;
-						}
-						// now we can redetect recursions
-						for(RECURSION_SET::iterator it= old_set->recursionSet.begin(); it!=old_set->recursionSet.end(); ++it) {
-							if((*it)->recursionSet == 0)
-								(*it)->recoursionCheck();
-						}
-						delete old_set;
-					}
-
-				} else {
-					removeAllChildren();
-					internalRefs--;
-					recursionSet->sumInternalRefs--;
-					recursionSet->recursionSet.erase(this);
-					if(!recursionSet->recursionSet.size())
-						delete recursionSet;
-					delete this;
-				}
-			}// otherwise nothing to do
-		}
-		else { //external Ref
-			ASSERT(refs); // by a Set it is not possible to remove an external Ref as the last ref
-			if(recursionSet->sumRefs==recursionSet->sumInternalRefs) {
-				SCRIPTVAR_CHILDS_t copyOfChilds(Childs);
-				Childs.clear();
-				SCRIPTVAR_CHILDS_it it;
-				for(it = copyOfChilds.begin(); it!= copyOfChilds.end(); ++it) {
-					delete *it;
-				}
-				copyOfChilds.clear();
-			} // otherwise nothing to do
-		}
-	}
-	else if (refs==0) {
+	if (refs==0)
 		delete this;
-	}
 }
 
 int CScriptVar::getRefs() {
 	return refs;
 }
 
-RECURSION_VECT::iterator find_last(RECURSION_VECT &Vector, const RECURSION_VECT::value_type &Key) {
-	for(RECURSION_VECT::reverse_iterator rit=Vector.rbegin(); rit!=Vector.rend(); ++rit) {
-		if(*rit==Key) return --rit.base();
-	}
-	return Vector.end();
-}
-void CScriptVar::recoursionCheck(CScriptVar *Owner) {
-	return;
-	if(recursionSet && Owner &&recursionSet == Owner->recursionSet) { // special thing for self-linking
-		Owner->internalRefs++;
-		Owner->recursionSet->sumInternalRefs++;
-	} else {
-		RECURSION_VECT recursionPath;
-		recoursionCheck(recursionPath);
-	}
-}
-void CScriptVar::recoursionCheck(RECURSION_VECT &recursionPath)
-{
-	if(recursionFlag || (recursionSet && recursionSet->recursionPathBase)) { // recursion found - create a new set
-		RECURSION_SET_VAR *new_set;
-		RECURSION_VECT::iterator it;
-
-		if(recursionSet) {					// recursion starts by a Set
-			new_set = recursionSet;			// we use the old Set as new Set
-			new_set->sumInternalRefs++;	// one internal
-			this->internalRefs++;			// new internal reference found
-			// find the Var of the Set tat is in the Path 
-			// +1, because the Set is already in the new Set
-			it = find_last(recursionPath, recursionSet->recursionPathBase)+1;
-		} else {													// recursion starts by a Var
-			new_set = new RECURSION_SET_VAR(this);	// create a new Set(marks it as "in the Path", with "this as start Var)
-			// find the Var in the Path
-			it = find_last(recursionPath, this);
-		}
-		// insert the Path beginning by this Var or the next Var after dis Set
-		// in the new_set and removes it from the Path
-		for(; it!= recursionPath.end(); ++it) {
-			if((*it)->recursionSet) {											// insert an existing Set
-				RECURSION_SET_VAR *old_set = (*it)->recursionSet;
-				new_set->sumInternalRefs += old_set->sumInternalRefs;	// for speed up; we adds the sum of internal refs and the sum of
-				new_set->sumRefs += old_set->sumRefs;						// refs to the new Set here instead rather than separately for each Var
-				new_set->sumInternalRefs++;									// a new Set in a Set is linked 
-				(*it)->internalRefs++;											// over an internal reference
-				// insert all Vars of the old Set in the new Set
-				for(RECURSION_SET::iterator set_it = old_set->recursionSet.begin(); set_it!= old_set->recursionSet.end(); ++set_it) {
-					new_set->recursionSet.insert(*set_it);	// insert this Var to the Set
-					(*set_it)->recursionSet = new_set;		// the Var is now in a Set
-				}
-				delete old_set;
-			} else {											// insert this Var in the new set
-				new_set->sumInternalRefs++;			// a new Var in a Set is linked 
-				(*it)->internalRefs++;					// over an internal reference
-				new_set->sumRefs += (*it)->refs;		// adds the Var refs to the Set refs
-				new_set->recursionSet.insert(*it);	// insert this Var to the Set
-				(*it)->recursionSet = new_set;		// the Var is now in a Set
-				(*it)->recursionFlag = 0;				// clear the Var-recursionFlag, because the Var in now in a Set
-			}
-		}
-		// all Vars inserted in the new Set 
-		// remove from Path all Vars from the end up to the start of Set (without the start of Set)
-		while(recursionPath.back() != new_set->recursionPathBase)
-			recursionPath.pop_back(); 
-	} else if(recursionSet) {								// found a recursionSet
-		recursionPath.push_back(this);	// push "this" in the Path
-		recursionSet->recursionPathBase = this;		// of all Vars in the Set is "this" in the Path
-		RECURSION_SET_VAR *old_set = recursionSet;
-		// a recursionSet is like an one&only Var 
-		// goes to all Childs of the Set
-		RECURSION_SET Set(recursionSet->recursionSet);
-		for(RECURSION_SET::iterator set_it = Set.begin(); set_it != Set.end(); ++set_it) {
-			for(SCRIPTVAR_CHILDS_it it = (*set_it)->Childs.begin(); it != (*set_it)->Childs.end(); ++it) {
-				if((*(*it))->recursionSet != recursionSet)
-					(*(*it))->recoursionCheck(recursionPath);
-			}
-		}
-		if(old_set == recursionSet) { // old_set == recursionSet means this Set is *not* included in an other Set
-			recursionSet->recursionPathBase = 0;
-			recursionPath.pop_back();
-		} // otherwise this Set is included in an other Set and is already removed from Path
-	} else {
-		recursionPath.push_back(this);	// push "this" in the Path
-		recursionFlag = 1;									// marked this Var as "the Var is in the Path"
-		// goes to all Childs of the Var
-		for(SCRIPTVAR_CHILDS_it it = Childs.begin(); it != Childs.end(); ++it) {
-			(*(*it))->recoursionCheck(recursionPath);
-		}
-		if(recursionFlag) { // recursionFlag!=0 means this Var is not included in a Set
-			recursionFlag = 0;
-			ASSERT(recursionPath.back() == this);
-			recursionPath.pop_back();
-		} else { // otherwise this Var is included in a Set and is already removed from Path
-			ASSERT(recursionSet && recursionSet->recursionPathBase);
-			if(recursionSet->recursionPathBase == this) { // the Var is the Base of the Set
-				recursionSet->recursionPathBase = 0;
-				ASSERT(recursionPath.back() == this);
-				recursionPath.pop_back();
-			}
-		}
-	}
-}
 void CScriptVar::setTempraryIDrecursive(int ID) {
 	if(temporaryID != ID) {
 		temporaryID = ID;
@@ -2687,7 +2489,7 @@ CTinyJS::CTinyJS() {
 	//////////////////////////////////////////////////////////////////////////
 	// Scopes
 	root = ::newScriptVar(this, Scope);
-	_scopes.push_back(root);
+	scopes.push_back(root);
 
 
 	//////////////////////////////////////////////////////////////////////////
@@ -2715,7 +2517,7 @@ CTinyJS::CTinyJS() {
 	//////////////////////////////////////////////////////////////////////////
 	// Number
 	numberPrototype = newScriptVar(Object);
-	var = addNative("function Number()", this, &CTinyJS::native_String);
+	var = addNative("function Number()", this, &CTinyJS::native_Number);
 	var->addChild(TINYJS_PROTOTYPE_CLASS, numberPrototype);
 
 	//////////////////////////////////////////////////////////////////////////
@@ -4250,46 +4052,45 @@ void CTinyJS::native_String(const CFunctionsScopePtr &c, void *data) {
 	else
 		c->setReturnVar(c->newScriptVar(c->getParameter(0)->getString()));
 }
+void CTinyJS::native_Number(const CFunctionsScopePtr &c, void *data) {
+	if(c->getParameterLength()==0)
+		c->setReturnVar(c->newScriptVar(0));
+	else
+		c->setReturnVar(c->getParameter(0)->getNumericVar());
+}
 void CTinyJS::native_Eval(const CFunctionsScopePtr &c, void *data) {
 	string Code = c->getParameter("jsCode")->getString();
-	CScriptVarScopePtr scEvalScope = scope(); // save scope
-	_scopes.pop_back(); // go back to the callers scope
+	CScriptVarScopePtr scEvalScope = scopes.back(); // save scope
+	scopes.pop_back(); // go back to the callers scope
+	CScriptVarSmartLink returnVar;
+	CScriptTokenizer *oldTokenizer = t; t=0;
 	try {
-		CScriptVarSmartLink returnVar;
-		CScriptTokenizer *oldTokenizer = t; t=0;
-		t = new CScriptTokenizer(Code.c_str(), "eval");
-		try {
-			bool execute = true;
-			do {
-				returnVar = execute_statement(execute);
-				while (t->tk==';') t->match(';'); // skip empty statements
-			} while (t->tk!=LEX_EOF);
-		} catch (CScriptException *e) {
-			delete t;
-			t = oldTokenizer;
-			throw e;
-		}
-		delete t;
-		t = oldTokenizer;
-
-		_scopes.push_back(scEvalScope); // restore Scopes;
-		if(returnVar)
-			c->setReturnVar(returnVar->getVarPtr());
-
-		// check of exceptions
-		int exceptionState = runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE);
-		runtimeFlags &= ~RUNTIME_LOOP_MASK;
-		if(exceptionState) throw new CScriptEvalException(exceptionState);
-
+		CScriptTokenizer Tokenizer(Code.c_str(), "eval");
+		t = &Tokenizer;
+		bool execute = true;
+		do {
+			returnVar = execute_statement(execute);
+			while (t->tk==';') t->match(';'); // skip empty statements
+		} while (t->tk!=LEX_EOF);
 	} catch (CScriptException *e) {
-		_scopes.push_back(scEvalScope); // restore Scopes;
+		t = oldTokenizer;
+		scopes.push_back(scEvalScope); // restore Scopes;
 		throw e;
 	}
+	t = oldTokenizer;
+	scopes.push_back(scEvalScope); // restore Scopes;
+	if(returnVar)
+		c->setReturnVar(returnVar->getVarPtr());
+
+	// check of exceptions
+	int exceptionState = runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE);
+	runtimeFlags &= ~RUNTIME_LOOP_MASK;
+	if(exceptionState) throw new CScriptEvalException(exceptionState);
 }
 
 void CTinyJS::native_JSON_parse(const CFunctionsScopePtr &c, void *data) {
 	string Code = "§" + c->getParameter("text")->getString();
-	
+	// "§" is a spezal-token - it's for the tokenizer and means the code begins not in Statement-level
 	CScriptVarSmartLink returnVar;
 	CScriptTokenizer *oldTokenizer = t; t=0;
 	try {
@@ -4371,7 +4172,7 @@ void CTinyJS::ClearLostVars(const CScriptVarPtr &extra/*=CScriptVarPtr()*/) {
 			var->ref();
 			var->removeAllChildren();
 			p = var->next;
-			var->unref(0);
+			var->unref();
 		}
 		else
 			p = p->next;

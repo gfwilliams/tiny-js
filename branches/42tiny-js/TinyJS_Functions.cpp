@@ -156,14 +156,6 @@ void registerFunctions(CTinyJS *tinyJS) {
 	tinyJS->addNative("function Object.prototype.dump()", scObjectDump, 0);
 	tinyJS->addNative("function Object.prototype.clone()", scObjectClone, 0);
 
-//	tinyJS->addNative("function charToInt(ch)", scCharToInt, 0); //  convert a character to an int - get its value
-//	tinyJS->addNative("function String.prototype.indexOf(search)", scStringIndexOf, 0); // find the position of a string in a string, -1 if not
-//	tinyJS->addNative("function String.prototype.substring(lo,hi)", scStringSubstring, 0);
-//	tinyJS->addNative("function String.prototype.charAt(pos)", scStringCharAt, 0);
-//	tinyJS->addNative("function String.prototype.charCodeAt(pos)", scStringCharCodeAt, 0);
-//	tinyJS->addNative("function String.prototype.fromCharCode(char)", scStringFromCharCode, 0);
-//	tinyJS->addNative("function String.prototype.split(separator,limit)", scStringSplit, 0);
-
 	tinyJS->addNative("function Integer.parseInt(str)", scIntegerParseInt, 0); // string to int
 	tinyJS->addNative("function Integer.valueOf(str)", scIntegerValueOf, 0); // value of a single character
 	tinyJS->addNative("function JSON.stringify(obj, replacer)", scJSONStringify, 0); // convert to JSON. replacer is ignored at the moment

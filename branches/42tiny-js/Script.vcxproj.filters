@@ -23,9 +23,6 @@
     <ClInclude Include="Script.h">
       <Filter>Headerdateien</Filter>
     </ClInclude>
-    <ClInclude Include="targetver.h">
-      <Filter>Headerdateien</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="ReadMe.txt" />

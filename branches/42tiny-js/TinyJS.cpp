@@ -424,9 +424,6 @@ string CScriptLex::getTokenStr(int token) {
 		case LEX_R_TRUE : return "true";
 		case LEX_R_FALSE : return "false";
 		case LEX_R_NULL : return "null";
-		case LEX_R_UNDEFINED : return "undefined";
-		case LEX_R_INFINITY : return "Infinity";
-		case LEX_R_NAN : return "NaN";
 		case LEX_R_NEW : return "new";
 		case LEX_R_TRY : return "try";
 		case LEX_R_CATCH : return "catch";
@@ -463,7 +460,7 @@ void CScriptLex::getNextCh() {
 			currCh = '\n'; // Mac (only '\r') --> convert '\r' to '\n'
 	}
 }
-static uint16_t not_allowed_tokens_befor_regexp[] = {LEX_ID, LEX_INT, LEX_FLOAT, LEX_STR, LEX_R_TRUE, LEX_R_FALSE, LEX_R_NULL, LEX_R_UNDEFINED, LEX_R_INFINITY, LEX_R_NAN, ']', ')', '.', LEX_EOF};
+static uint16_t not_allowed_tokens_befor_regexp[] = {LEX_ID, LEX_INT, LEX_FLOAT, LEX_STR, LEX_R_TRUE, LEX_R_FALSE, LEX_R_NULL, ']', ')', '.', LEX_EOF};
 void CScriptLex::getNextToken() {
 	while (currCh && isWhitespace(currCh)) getNextCh();
 	// newline comments
@@ -509,9 +506,6 @@ void CScriptLex::getNextToken() {
 		else if (tkStr=="true")			tk = LEX_R_TRUE;
 		else if (tkStr=="false")		tk = LEX_R_FALSE;
 		else if (tkStr=="null")			tk = LEX_R_NULL;
-		else if (tkStr=="undefined")	tk = LEX_R_UNDEFINED;
-		else if (tkStr=="Infinity")	tk = LEX_R_INFINITY;
-		else if (tkStr=="NaN")			tk = LEX_R_NAN;
 		else if (tkStr=="new")			tk = LEX_R_NEW;
 		else if (tkStr=="try")			tk = LEX_R_TRY;
 		else if (tkStr=="catch")		tk = LEX_R_CATCH;
@@ -696,14 +690,11 @@ void CScriptLex::getNextToken() {
 			if(tk == LEX_REGEXP) {
 				tkStr = "/";
 				while (currCh && currCh!='/' && currCh!='\n') {
-					if (currCh == '\\') {
-						getNextCh();
-						if(currCh != '\n') { // ignore newline after '\'
-							tkStr.append("\\");
-							tkStr.append(1, currCh);
-						}
-					} else
+					if (currCh == '\\' && nextCh == '/') {
 						tkStr.append(1, currCh);
+						getNextCh();
+					}
+					tkStr.append(1, currCh);
 					getNextCh();
 				}
 				if(currCh == '/') {
@@ -2511,12 +2502,19 @@ CTinyJS::CTinyJS() {
 	
 	//////////////////////////////////////////////////////////////////////////
 	// Object-Prototype
-	objectPrototype = newScriptVar(Object);
+	objectPrototype = newScriptVar(Object); 
+	// must be created as first object because the first object becomes not a prototype (see constructor of CScriptVar)
 
 	//////////////////////////////////////////////////////////////////////////
 	// Scopes
 	root = ::newScriptVar(this, Scope);
 	scopes.push_back(root);
+
+	//////////////////////////////////////////////////////////////////////////
+	// global built-in vars
+	root->addChild("NaN", newScriptVar(NaN), SCRIPTVARLINK_ENUMERABLE);
+	root->addChild("Infinity", newScriptVar(InfinityPositive), SCRIPTVARLINK_ENUMERABLE);
+	root->addChild("undefined", newScriptVar(Undefined), SCRIPTVARLINK_ENUMERABLE);
 
 
 	//////////////////////////////////////////////////////////////////////////
@@ -2546,6 +2544,9 @@ CTinyJS::CTinyJS() {
 	numberPrototype = newScriptVar(Object);
 	var = addNative("function Number()", this, &CTinyJS::native_Number);
 	var->addChild(TINYJS_PROTOTYPE_CLASS, numberPrototype);
+	var->addChild("NaN", newScriptVar(NaN), SCRIPTVARLINK_ENUMERABLE);
+	var->addChild("POSITIVE_INFINITY", newScriptVar(InfinityPositive), SCRIPTVARLINK_ENUMERABLE);
+	var->addChild("NEGATIVE_INFINITY", newScriptVar(InfinityNegative), SCRIPTVARLINK_ENUMERABLE);
 
 	//////////////////////////////////////////////////////////////////////////
 	// Function
@@ -2556,9 +2557,16 @@ CTinyJS::CTinyJS() {
 	addNative("function Function.prototype.apply(objc, args)", this, &CTinyJS::native_Function_apply); // execute the given string and return the result
 
 	//////////////////////////////////////////////////////////////////////////
-	addNative("function eval(jsCode)", this, &CTinyJS::native_Eval); // execute the given string and return the result
-	addNative("function JSON.parse(text, reviver)", this, &CTinyJS::native_JSON_parse); // execute the given string and return the result
-
+	// global functions
+	addNative("function eval(jsCode)", this, &CTinyJS::native_eval); // execute the given string and return the result
+	addNative("function isNaN(objc)", this, &CTinyJS::native_isNAN);
+	addNative("function isFinite(objc)", this, &CTinyJS::native_isFinite);
+	addNative("function parseInt(string, radix)", this, &CTinyJS::native_parseInt);
+	addNative("function parseFloat(string)", this, &CTinyJS::native_parseFloat);
+	
+	
+	addNative("function JSON.parse(text, reviver)", this, &CTinyJS::native_JSON_parse);
+	
 }
 
 CTinyJS::~CTinyJS() {
@@ -3033,15 +3041,6 @@ CScriptVarSmartLink CTinyJS::execute_literals(bool &execute) {
 	} else if (t->tk==LEX_R_NULL) {
 		t->match(LEX_R_NULL);
 		return new CScriptVarLink(newScriptVar(Null));
-	} else if (t->tk==LEX_R_UNDEFINED) {
-		t->match(LEX_R_UNDEFINED);
-		return new CScriptVarLink(newScriptVar(Undefined));
-	} else if (t->tk==LEX_R_INFINITY) {
-		t->match(LEX_R_INFINITY);
-		return new CScriptVarLink(newScriptVar(InfinityPositive));
-	} else if (t->tk==LEX_R_NAN) {
-		t->match(LEX_R_NAN);
-		return new CScriptVarLink(newScriptVar(NaN));
 	} else if (t->tk=='(') {
 		t->match('(');
 		CScriptVarSmartLink a = execute_base(execute);
@@ -4056,6 +4055,9 @@ CScriptVarLink *CTinyJS::findInPrototypeChain(CScriptVarPtr object, const string
 */
 	return 0;
 }
+
+////////////////////////////////////////////////////////////////////////// native Object
+
 void CTinyJS::native_Object(const CFunctionsScopePtr &c, void *data) {
 	CScriptVarPtr objc = c->getParameter(0);
 	if(objc->isUndefined() || objc->isNull())
@@ -4063,6 +4065,12 @@ void CTinyJS::native_Object(const CFunctionsScopePtr &c, void *data) {
 	else
 		c->setReturnVar(objc);
 }
+void CTinyJS::native_Object_hasOwnProperty(const CFunctionsScopePtr &c, void *data) {
+	c->setReturnVar(c->newScriptVar(c->getParameter("this")->findChild(c->getParameter("prop")->getString()) != 0));
+}
+
+////////////////////////////////////////////////////////////////////////// native Array
+
 void CTinyJS::native_Array(const CFunctionsScopePtr &c, void *data) {
 //	CScriptVar *returnVar = new CScriptVarArray(c->getContext());
 	CScriptVarPtr returnVar = c->newScriptVar(Array);
@@ -4073,76 +4081,26 @@ void CTinyJS::native_Array(const CFunctionsScopePtr &c, void *data) {
 	else for(int i=0; i<length; i++)
 		returnVar->setArrayIndex(i, c->getParameter(i));
 }
+
+////////////////////////////////////////////////////////////////////////// native String
+
 void CTinyJS::native_String(const CFunctionsScopePtr &c, void *data) {
 	if(c->getParameterLength()==0)
 		c->setReturnVar(c->newScriptVar(""));
 	else
 		c->setReturnVar(c->newScriptVar(c->getParameter(0)->getString()));
 }
+
+////////////////////////////////////////////////////////////////////////// native Number
+
 void CTinyJS::native_Number(const CFunctionsScopePtr &c, void *data) {
 	if(c->getParameterLength()==0)
 		c->setReturnVar(c->newScriptVar(0));
 	else
 		c->setReturnVar(c->getParameter(0)->getNumericVar());
 }
-void CTinyJS::native_Eval(const CFunctionsScopePtr &c, void *data) {
-	string Code = c->getParameter("jsCode")->getString();
-	CScriptVarScopePtr scEvalScope = scopes.back(); // save scope
-	scopes.pop_back(); // go back to the callers scope
-	CScriptVarSmartLink returnVar;
-	CScriptTokenizer *oldTokenizer = t; t=0;
-	try {
-		CScriptTokenizer Tokenizer(Code.c_str(), "eval");
-		t = &Tokenizer;
-		bool execute = true;
-		do {
-			returnVar = execute_statement(execute);
-			while (t->tk==';') t->match(';'); // skip empty statements
-		} while (t->tk!=LEX_EOF);
-	} catch (CScriptException *e) {
-		t = oldTokenizer;
-		scopes.push_back(scEvalScope); // restore Scopes;
-		throw e;
-	}
-	t = oldTokenizer;
-	scopes.push_back(scEvalScope); // restore Scopes;
-	if(returnVar)
-		c->setReturnVar(returnVar->getVarPtr());
 
-	// check of exceptions
-	int exceptionState = runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE);
-	runtimeFlags &= ~RUNTIME_LOOP_MASK;
-	if(exceptionState) throw new CScriptEvalException(exceptionState);
-}
-
-void CTinyJS::native_JSON_parse(const CFunctionsScopePtr &c, void *data) {
-	string Code = "§" + c->getParameter("text")->getString();
-	// "§" is a spezal-token - it's for the tokenizer and means the code begins not in Statement-level
-	CScriptVarSmartLink returnVar;
-	CScriptTokenizer *oldTokenizer = t; t=0;
-	try {
-		CScriptTokenizer Tokenizer(Code.c_str(), "JSON.parse", 0, -1);
-		t = &Tokenizer;
-		bool execute = true;
-		returnVar = execute_literals(execute);
-		t->match(LEX_EOF);
-	} catch (CScriptException *e) {
-		t = oldTokenizer;
-		throw e;
-	}
-	t = oldTokenizer;
-
-	if(returnVar)
-		c->setReturnVar(returnVar);
-
-// check of exceptions
-//		int exceptionState = runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE);
-//		runtimeFlags &= ~RUNTIME_LOOP_MASK;
-//		if(exceptionState) throw new CScriptEvalException(exceptionState);
-}
-void CTinyJS::native_Object_hasOwnProperty(const CFunctionsScopePtr &c, void *data) {
-	c->setReturnVar(c->newScriptVar(c->getParameter("this")->findChild(c->getParameter("prop")->getString()) != 0));
-}
+////////////////////////////////////////////////////////////////////////// native Function
 
 void CTinyJS::native_Function(const CFunctionsScopePtr &c, void *data) {
 	int length = c->getParameterLength();
@@ -4185,6 +4143,97 @@ void CTinyJS::native_Function_apply(const CFunctionsScopePtr &c, void *data) {
 	bool execute = true;
 	callFunction(Fnc, Params, This, execute);
 }
+
+////////////////////////////////////////////////////////////////////////// global functions
+
+void CTinyJS::native_eval(const CFunctionsScopePtr &c, void *data) {
+	string Code = c->getParameter("jsCode")->getString();
+	CScriptVarScopePtr scEvalScope = scopes.back(); // save scope
+	scopes.pop_back(); // go back to the callers scope
+	CScriptVarSmartLink returnVar;
+	CScriptTokenizer *oldTokenizer = t; t=0;
+	try {
+		CScriptTokenizer Tokenizer(Code.c_str(), "eval");
+		t = &Tokenizer;
+		bool execute = true;
+		do {
+			returnVar = execute_statement(execute);
+			while (t->tk==';') t->match(';'); // skip empty statements
+		} while (t->tk!=LEX_EOF);
+	} catch (CScriptException *e) {
+		t = oldTokenizer;
+		scopes.push_back(scEvalScope); // restore Scopes;
+		throw e;
+	}
+	t = oldTokenizer;
+	scopes.push_back(scEvalScope); // restore Scopes;
+	if(returnVar)
+		c->setReturnVar(returnVar->getVarPtr());
+
+	// check of exceptions
+	int exceptionState = runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE);
+	runtimeFlags &= ~RUNTIME_LOOP_MASK;
+	if(exceptionState) throw new CScriptEvalException(exceptionState);
+}
+
+void CTinyJS::native_isNAN(const CFunctionsScopePtr &c, void *data) {
+	c->setReturnVar(newScriptVar(c->getParameter("objc")->getNumericVar()->isNaN()));
+}
+
+void CTinyJS::native_isFinite(const CFunctionsScopePtr &c, void *data) {
+	CScriptVarPtr objc = c->getParameter("objc")->getNumericVar();
+	c->setReturnVar(newScriptVar(!(objc->isInfinity() || objc->isNaN())));
+}
+
+void CTinyJS::native_parseInt(const CFunctionsScopePtr &c, void *) {
+	string str = c->getParameter("string")->getString();
+	int radix = c->getParameter("radix")->getInt();
+	char *endp = 0;
+	int val = strtol(str.c_str(),&endp,radix!=0 ? radix : 0);
+	if(endp == str.c_str())
+		c->setReturnVar(c->newScriptVar(NaN));
+	else
+		c->setReturnVar(c->newScriptVar(val));
+}
+
+void CTinyJS::native_parseFloat(const CFunctionsScopePtr &c, void *) {
+	string str = c->getParameter("string")->getString();
+	char *endp = 0;
+	double val = strtod(str.c_str(),&endp);
+	if(endp == str.c_str())
+		c->setReturnVar(c->newScriptVar(NaN));
+	else
+		c->setReturnVar(c->newScriptVar(val));
+}
+
+
+
+void CTinyJS::native_JSON_parse(const CFunctionsScopePtr &c, void *data) {
+	string Code = "§" + c->getParameter("text")->getString();
+	// "§" is a spezal-token - it's for the tokenizer and means the code begins not in Statement-level
+	CScriptVarSmartLink returnVar;
+	CScriptTokenizer *oldTokenizer = t; t=0;
+	try {
+		CScriptTokenizer Tokenizer(Code.c_str(), "JSON.parse", 0, -1);
+		t = &Tokenizer;
+		bool execute = true;
+		returnVar = execute_literals(execute);
+		t->match(LEX_EOF);
+	} catch (CScriptException *e) {
+		t = oldTokenizer;
+		throw e;
+	}
+	t = oldTokenizer;
+
+	if(returnVar)
+		c->setReturnVar(returnVar);
+
+// check of exceptions
+//		int exceptionState = runtimeFlags & (RUNTIME_BREAK | RUNTIME_CONTINUE);
+//		runtimeFlags &= ~RUNTIME_LOOP_MASK;
+//		if(exceptionState) throw new CScriptEvalException(exceptionState);
+}
+
 
 void CTinyJS::ClearLostVars(const CScriptVarPtr &extra/*=CScriptVarPtr()*/) {
 	int UniqueID = getUniqueID(); 

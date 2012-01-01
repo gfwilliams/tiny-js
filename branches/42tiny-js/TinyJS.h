@@ -114,9 +114,6 @@ enum LEX_TYPES {
 	LEX_R_TRUE,
 	LEX_R_FALSE,
 	LEX_R_NULL,
-	LEX_R_UNDEFINED,
-	LEX_R_INFINITY,
-	LEX_R_NAN,
 	LEX_R_NEW,
 	LEX_R_TRY,
 	LEX_R_CATCH,
@@ -1273,21 +1270,32 @@ private:
 	void throwError(bool &execute, const std::string &message);
 	void throwError(bool &execute, const std::string &message, CScriptTokenizer::ScriptTokenPosition &Pos);
 
-	/// native Functions
+	/// native Object-Constructors & prototype-functions
 
 	void native_Object(const CFunctionsScopePtr &c, void *data);
-	void native_String(const CFunctionsScopePtr &c, void *data);
-	void native_Number(const CFunctionsScopePtr &c, void *data);
+	void native_Object_hasOwnProperty(const CFunctionsScopePtr &c, void *data);
+
 	void native_Array(const CFunctionsScopePtr &c, void *data);
 
+	void native_String(const CFunctionsScopePtr &c, void *data);
 
-	void native_Eval(const CFunctionsScopePtr &c, void *data);
-	void native_JSON_parse(const CFunctionsScopePtr &c, void *data);
-	void native_Object_hasOwnProperty(const CFunctionsScopePtr &c, void *data);
+	void native_Number(const CFunctionsScopePtr &c, void *data);
+
 	void native_Function(const CFunctionsScopePtr &c, void *data);
-
 	void native_Function_call(const CFunctionsScopePtr &c, void *data);
 	void native_Function_apply(const CFunctionsScopePtr &c, void *data);
+
+	/// globale function
+
+	void native_eval(const CFunctionsScopePtr &c, void *data);
+	void native_isNAN(const CFunctionsScopePtr &c, void *data);
+	void native_isFinite(const CFunctionsScopePtr &c, void *data);
+	void native_parseInt(const CFunctionsScopePtr &c, void *data);
+	void native_parseFloat(const CFunctionsScopePtr &c, void *data);
+
+
+
+	void native_JSON_parse(const CFunctionsScopePtr &c, void *data);
 
 
 	int uniqueID;

@@ -65,12 +65,6 @@ static void scStringFromCharCode(const CFunctionsScopePtr &c, void *) {
 	c->setReturnVar(c->newScriptVar(str));
 }
 
-static void scIntegerParseInt(const CFunctionsScopePtr &c, void *) {
-	string str = c->getParameter("str")->getString();
-	int val = strtol(str.c_str(),0,0);
-	c->setReturnVar(c->newScriptVar(val));
-}
-
 static void scIntegerValueOf(const CFunctionsScopePtr &c, void *) {
 	string str = c->getParameter("str")->getString();
 
@@ -156,10 +150,8 @@ void registerFunctions(CTinyJS *tinyJS) {
 	tinyJS->addNative("function Object.prototype.dump()", scObjectDump, 0);
 	tinyJS->addNative("function Object.prototype.clone()", scObjectClone, 0);
 
-	tinyJS->addNative("function Integer.parseInt(str)", scIntegerParseInt, 0); // string to int
 	tinyJS->addNative("function Integer.valueOf(str)", scIntegerValueOf, 0); // value of a single character
 	tinyJS->addNative("function JSON.stringify(obj, replacer)", scJSONStringify, 0); // convert to JSON. replacer is ignored at the moment
-	// JSON.parse is left out as you can (unsafely!) use eval instead
 	tinyJS->addNative("function Array.prototype.contains(obj)", scArrayContains, 0);
 	tinyJS->addNative("function Array.prototype.remove(obj)", scArrayRemove, 0);
 	tinyJS->addNative("function Array.prototype.join(separator)", scArrayJoin, 0);

@@ -335,7 +335,7 @@ CScriptLex::CScriptLex(const char *Code, const string &File, int Line, int Colum
 void CScriptLex::reset(const char *toPos, int Line, const char *LineStart) {
 	dataPos = toPos;
 	tokenStart = data;
-	tk = 0;
+	tk = last_tk = 0;
 	tkStr = "";
 	currentLine = Line;
 	currentLineStart = LineStart;
@@ -349,7 +349,10 @@ void CScriptLex::check(int expected_tk) {
 	if (expected_tk==';' && tk==LEX_EOF) return; // ignore last missing ';'
 	if (tk!=expected_tk) {
 		ostringstream errorString;
-		errorString << "Got " << getTokenStr(tk) << " expected " << getTokenStr(expected_tk);
+		if(expected_tk == LEX_EOF)
+			errorString << "Got unexpected " << getTokenStr(tk);
+		else
+			errorString << "Got " << getTokenStr(tk) << " expected " << getTokenStr(expected_tk);
 		throw new CScriptException(errorString.str(), currentFile, currentLine, currentColumn());
 	}
 }
@@ -372,6 +375,7 @@ string CScriptLex::getTokenStr(int token) {
 		case LEX_INT : return "INT";
 		case LEX_FLOAT : return "FLOAT";
 		case LEX_STR : return "STRING";
+		case LEX_REGEXP : return "REGEXP";
 		case LEX_EQUAL : return "==";
 		case LEX_TYPEEQUAL : return "===";
 		case LEX_NEQUAL : return "!=";
@@ -459,10 +463,8 @@ void CScriptLex::getNextCh() {
 			currCh = '\n'; // Mac (only '\r') --> convert '\r' to '\n'
 	}
 }
-
+static uint16_t not_allowed_tokens_befor_regexp[] = {LEX_ID, LEX_INT, LEX_FLOAT, LEX_STR, LEX_R_TRUE, LEX_R_FALSE, LEX_R_NULL, LEX_R_UNDEFINED, LEX_R_INFINITY, LEX_R_NAN, ']', ')', '.', LEX_EOF};
 void CScriptLex::getNextToken() {
-	tk = LEX_EOF;
-	tkStr.clear();
 	while (currCh && isWhitespace(currCh)) getNextCh();
 	// newline comments
 	if (currCh=='/' && nextCh=='/') {
@@ -479,6 +481,9 @@ void CScriptLex::getNextToken() {
 			getNextToken();
 			return;
 	}
+	last_tk = tk;
+	tk = LEX_EOF;
+	tkStr.clear();
 	// record beginning of this token
 	tokenStart = dataPos - (nextCh == LEX_EOF ? (currCh == LEX_EOF ? 0 : 1) : 2);
 	// tokens
@@ -682,9 +687,36 @@ void CScriptLex::getNextToken() {
 		} else if (tk=='*' && currCh=='=') {
 			tk = LEX_ASTERISKEQUAL;
 			getNextCh();
-		} else if (tk=='/' && currCh=='=') {
-			tk = LEX_SLASHEQUAL;
-			getNextCh();
+		} else if (tk=='/') {
+			// check if it's a Regex-Literal
+			tk = LEX_REGEXP;
+			for(uint16_t *p = not_allowed_tokens_befor_regexp; *p; p++) {
+				if(*p==last_tk) { tk = '/'; break; }
+			}
+			if(tk == LEX_REGEXP) {
+				tkStr = "/";
+				while (currCh && currCh!='/' && currCh!='\n') {
+					if (currCh == '\\') {
+						getNextCh();
+						if(currCh != '\n') { // ignore newline after '\'
+							tkStr.append("\\");
+							tkStr.append(1, currCh);
+						}
+					} else
+						tkStr.append(1, currCh);
+					getNextCh();
+				}
+				if(currCh == '/') {
+					do {
+						tkStr.append(1, currCh);
+						getNextCh();
+					} while (currCh && currCh=='g' && currCh=='i' && currCh=='m' && currCh=='y');
+				} else
+					throw new CScriptException("unterminated regular expression literal", currentFile, currentLine, currentColumn());
+			} else if(currCh=='=') {
+				tk = LEX_SLASHEQUAL;
+				getNextCh();
+			}
 		} else if (tk=='%' && currCh=='=') {
 			tk = LEX_PERCENTEQUAL;
 			getNextCh();
@@ -901,7 +933,10 @@ bool CScriptTokenizer::check(int ExpectedToken) {
 	if (ExpectedToken==';' && (currentToken==LEX_EOF || currentToken=='}')) return false; // ignore last missing ';'
 	if (currentToken!=ExpectedToken) {
 		ostringstream errorString;
-		errorString << "Got " << CScriptLex::getTokenStr(currentToken) << " expected " << CScriptLex::getTokenStr(ExpectedToken);
+		if(ExpectedToken == LEX_EOF)
+			errorString << "Got unexpected " << CScriptLex::getTokenStr(currentToken);
+		else
+			errorString << "Got " << CScriptLex::getTokenStr(currentToken) << " expected " << CScriptLex::getTokenStr(ExpectedToken);
 		throw new CScriptException(errorString.str(), currentFile, currentLine(), currentColumn());
 	}
 	return true;
@@ -1597,6 +1632,7 @@ string CScriptVar::getString() {return "";}
 string CScriptVar::getParsableString(const string &indentString, const string &indent) {
 	return getString();
 }
+/*
 string CScriptVar::getVarType() {
 	if(this->isBool())
 		return "boolean";
@@ -1610,35 +1646,9 @@ string CScriptVar::getVarType() {
 		return "undefined";
 	return "object"; // Object / Array / null
 }
-///< returns an Integer, a Double, an Infinity or a NaN
-CScriptVarLink *CScriptVar::getNumericVar()
-{
-	if(isNumber() || isInfinity())
-		return new CScriptVarLink(this);
-	else if(isNull())
-		return new CScriptVarLink(newScriptVar(0));
-	else if(isBool())
-		return new CScriptVarLink(newScriptVar(getInt()));
-/* ToDo
-	else if(Var->isObject())
-		return ToDo call Object.valueOff();
-	else if(Var->isArray())
-		return ToDo call Object.valueOff();
 */
-	else if(isString()) {
-		string the_string = getString();
-		double d;
-		char *endptr;//=NULL;
-		int i = strtol(the_string.c_str(),&endptr,0);
-		if(*endptr == '\0')
-			return new CScriptVarLink(newScriptVar(i));
-		if(*endptr=='.' || *endptr=='e' || *endptr=='E') {
-			d = strtod(the_string.c_str(),&endptr);
-			if(*endptr == '\0')
-				return new CScriptVarLink(newScriptVar(d));
-		}
-	}
-	return new CScriptVarLink(newScriptVar(NaN));
+CScriptVarPtr CScriptVar::getNumericVar() {
+	return newScriptVar(NaN);
 }
 
 
@@ -1898,8 +1908,8 @@ CScriptVarPtr CScriptVar::mathsOp(const CScriptVarPtr &b, int op) {
 	}
 	
 	// gets only an Integer, a Double, in Infinity or a NaN
-	CScriptVarSmartLink a_l = a->getNumericVar();
-	CScriptVarSmartLink b_l = b->getNumericVar();
+	CScriptVarPtr a_l = a->getNumericVar();
+	CScriptVarPtr b_l = b->getNumericVar();
 	{
 		CScriptVarPtr a = a_l;
 		CScriptVarPtr b = b_l;
@@ -2198,6 +2208,7 @@ CScriptVarPtr CScriptVarNull::clone() { return new CScriptVarNull(*this); }
 bool CScriptVarNull::isNull() { return true; }
 string CScriptVarNull::getString() { return "null"; };
 string CScriptVarNull::getVarType() { return "null"; }
+CScriptVarPtr CScriptVarNull::getNumericVar() { return newScriptVar(0); }
 
 
 ////////////////////////////////////////////////////////////////////////// CScriptVarUndefined
@@ -2235,11 +2246,24 @@ int CScriptVarString::getInt() {return strtol(data.c_str(),0,0); }
 bool CScriptVarString::getBool() {return data.length()!=0;}
 double CScriptVarString::getDouble() {return strtod(data.c_str(),0);}
 string CScriptVarString::getString() { return data; }
-string CScriptVarString::getVarType() { return "string"; }
 string CScriptVarString::getParsableString() { return getJSString(data); }
+string CScriptVarString::getVarType() { return "string"; }
+CScriptVarPtr CScriptVarString::getNumericVar() {
+	string the_string = getString();
+	double d;
+	char *endptr;//=NULL;
+	int i = strtol(the_string.c_str(),&endptr,0);
+	if(*endptr == '\0')
+		return newScriptVar(i);
+	if(*endptr=='.' || *endptr=='e' || *endptr=='E') {
+		d = strtod(the_string.c_str(),&endptr);
+		if(*endptr == '\0')
+			return newScriptVar(d);
+	}
+	return CScriptVar::getNumericVar();
+}
 
-void CScriptVarString::native_Length(const CFunctionsScopePtr &c, void *data)
-{
+void CScriptVarString::native_Length(const CFunctionsScopePtr &c, void *data) {
 	c->setReturnVar(newScriptVar((int)this->data.size()));
 }
 
@@ -2253,6 +2277,7 @@ bool CScriptVarIntegerBase::getBool() {return data!=0;}
 double CScriptVarIntegerBase::getDouble() {return data;}
 string CScriptVarIntegerBase::getString() {return int2string(data);}
 string CScriptVarIntegerBase::getVarType() { return "number"; }
+CScriptVarPtr CScriptVarIntegerBase::getNumericVar() { return this; }
 
 
 ////////////////////////////////////////////////////////////////////////// CScriptVarInteger
@@ -2270,6 +2295,7 @@ CScriptVarPtr CScriptVarBool::clone() { return new CScriptVarBool(*this); }
 bool CScriptVarBool::isBool() { return true; }
 string CScriptVarBool::getString() {return data!=0?"true":"false";}
 string CScriptVarBool::getVarType() { return "boolean"; }
+CScriptVarPtr CScriptVarBool::getNumericVar() { return newScriptVar(data); }
 
 
 ////////////////////////////////////////////////////////////////////////// CScriptVarInfinity
@@ -2295,6 +2321,7 @@ bool CScriptVarDouble::getBool() {return data!=0.0;}
 double CScriptVarDouble::getDouble() {return data;}
 string CScriptVarDouble::getString() {return float2string(data);}
 string CScriptVarDouble::getVarType() { return "number"; }
+CScriptVarPtr CScriptVarDouble::getNumericVar() { return this; }
 
 
 ////////////////////////////////////////////////////////////////////////// CScriptVarFunction

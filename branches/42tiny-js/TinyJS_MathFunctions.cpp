@@ -68,17 +68,17 @@ namespace
 }
 #endif
 
-#define GET_PARAMETER_AS_NUMERIC_VAR(v,n) CScriptVarSmartLink v = c->getParameter(n)->getNumericVar()
-#define RETURN_NAN_IS_NAN(v) do{ if((*v)->isNaN()) { c->setReturnVar(v); return; } }while(0)
-#define RETURN_NAN_IS_NAN_OR_INFINITY(v) do{ if((*v)->isNaN() || (*v)->isInfinity()) { c->setReturnVar(v); return; } }while(0)
-#define RETURN_INFINITY_IS_INFINITY(v) do{ if((*v)->isInfinity()) { c->setReturnVar(v); return; } }while(0)
+#define GET_PARAMETER_AS_NUMERIC_VAR(v,n) CScriptVarPtr v = c->getParameter(n)->getNumericVar()
+#define RETURN_NAN_IS_NAN(v) do{ if(v->isNaN()) { c->setReturnVar(v); return; } }while(0)
+#define RETURN_NAN_IS_NAN_OR_INFINITY(v) do{ if(v->isNaN() || v->isInfinity()) { c->setReturnVar(v); return; } }while(0)
+#define RETURN_INFINITY_IS_INFINITY(v) do{ if(v->isInfinity()) { c->setReturnVar(v); return; } }while(0)
 
-#define GET_DOUBLE(v) (*v)->getDouble()
+#define GET_DOUBLE(v) v->getDouble()
 
 //Math.abs(x) - returns absolute of given value
 static void scMathAbs(const CFunctionsScopePtr &c, void *userdata) {
 	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a);
-	if((*a)->getInt() < 0) {
+	if(a->getInt() < 0) {
 		CScriptVarPtr zero = c->newScriptVar(0);
 		c->setReturnVar(zero->mathsOp(a, '-'));
 	} else
@@ -110,8 +110,8 @@ static void scMathMin(const CFunctionsScopePtr &c, void *userdata) {
 	for(int i=0; i<length; i++)
 	{
 		GET_PARAMETER_AS_NUMERIC_VAR(a,i);RETURN_NAN_IS_NAN(a);
-		if((*a)->isInfinity() < 0)  { c->setReturnVar(a); return; } 
-		CScriptVarPtr result = (*a)->mathsOp(ret, '<');
+		if(a->isInfinity() < 0)  { c->setReturnVar(a); return; } 
+		CScriptVarPtr result = a->mathsOp(ret, '<');
 		if(result->getBool())
 			ret = a;
 	}
@@ -125,8 +125,8 @@ static void scMathMax(const CFunctionsScopePtr &c, void *userdata) {
 	for(int i=0; i<length; i++)
 	{
 		GET_PARAMETER_AS_NUMERIC_VAR(a,i);RETURN_NAN_IS_NAN(a);
-		if((*a)->isInfinity() > 0)  { c->setReturnVar(a); return; } 
-		CScriptVarPtr result = (*a)->mathsOp(ret, '>');
+		if(a->isInfinity() > 0)  { c->setReturnVar(a); return; } 
+		CScriptVarPtr result = a->mathsOp(ret, '>');
 		if(result->getBool())
 			ret = a;
 	}
@@ -142,15 +142,15 @@ static void scMathRange(const CFunctionsScopePtr &c, void *userdata) {
 	CScriptVarPtr check;
 	bool check_bool;
 
-	check = (*a)->mathsOp(b, LEX_LEQUAL);
+	check = a->mathsOp(b, LEX_LEQUAL);
 	check_bool = check->getBool();
 	if(!check_bool) { scReturnNaN(); return; }
 	
-	check = (*x)->mathsOp(a, '<');
+	check = x->mathsOp(a, '<');
 	check_bool = check->getBool(); 
 	if(check_bool) { c->setReturnVar(a); return; }
 
-	check = (*x)->mathsOp(b, '>');
+	check = x->mathsOp(b, '>');
 	check_bool = check->getBool(); 
 	c->setReturnVar((check_bool ? b:x));
 }
@@ -260,8 +260,8 @@ static void scMathATanh(const CFunctionsScopePtr &c, void *userdata) {
 //Math.log(a) - returns natural logaritm (base E) of given value
 static void scMathLog(const CFunctionsScopePtr &c, void *userdata) {
 	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a); 
-	int a_i = (*a)->isInfinity();
-	double a_d = (*a)->getDouble();
+	int a_i = a->isInfinity();
+	double a_d = a->getDouble();
 	if(a_i>0) { c->setReturnVar(c->newScriptVar(InfinityPositive)); return; }
 	else if(a_i<0 || a_d<0.0) { scReturnNaN(); return; }
 	scReturnDouble( log( a_d ) );
@@ -270,8 +270,8 @@ static void scMathLog(const CFunctionsScopePtr &c, void *userdata) {
 //Math.log10(a) - returns logaritm(base 10) of given value
 static void scMathLog10(const CFunctionsScopePtr &c, void *userdata) {
 	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a); 
-	int a_i = (*a)->isInfinity();
-	double a_d = (*a)->getDouble();
+	int a_i = a->isInfinity();
+	double a_d = a->getDouble();
 	if(a_i>0) { c->setReturnVar(c->newScriptVar(InfinityPositive)); return; }
 	else if(a_i<0 || a_d<0.0) { c->setReturnVar(c->newScriptVar(NaN)); return; }
 	scReturnDouble( log10( a_d ) );
@@ -280,7 +280,7 @@ static void scMathLog10(const CFunctionsScopePtr &c, void *userdata) {
 //Math.exp(a) - returns e raised to the power of a given number
 static void scMathExp(const CFunctionsScopePtr &c, void *userdata) {
 	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a);
-	int a_i = (*a)->isInfinity();
+	int a_i = a->isInfinity();
 	if(a_i>0) { c->setReturnVar(c->newScriptVar(InfinityPositive)); return; }
 	else if(a_i<0) { c->setReturnVar(c->newScriptVar(0)); return; }
 	scReturnDouble( exp( GET_DOUBLE(a) ) );
@@ -290,8 +290,8 @@ static void scMathExp(const CFunctionsScopePtr &c, void *userdata) {
 static void scMathPow(const CFunctionsScopePtr &c, void *userdata) {
 	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a);
 	GET_PARAMETER_AS_NUMERIC_VAR(b,"b"); RETURN_NAN_IS_NAN(b); 
-	int a_i = (*a)->isInfinity(), b_i = (*b)->isInfinity();
-	double a_d = (*a)->getDouble(), b_d = (*b)->getDouble();
+	int a_i = a->isInfinity(), b_i = b->isInfinity();
+	double a_d = a->getDouble(), b_d = b->getDouble();
 	if(b_i>0) {
 		if(a_i || a_d>1.0 || a_d<-1.0) { c->setReturnVar(c->newScriptVar(InfinityPositive)); return; }
 		else if(a_i==0 && (a_d==1.0 || a_d==-1.0)) { c->setReturnVar(c->newScriptVar(1)); return; }

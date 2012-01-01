@@ -89,6 +89,7 @@ enum LEX_TYPES {
 #define LEX_TOKEN_STRING_BEGIN LEX_ID
 	LEX_ID,
 	LEX_STR,
+	LEX_REGEXP,
 	LEX_T_LABEL,
 #define LEX_TOKEN_STRING_END LEX_T_LABEL
 
@@ -291,6 +292,7 @@ public:
 	CScriptLex(const char *Code, const std::string &File="", int Line=0, int Column=0);
 
 	int tk; ///< The type of the token that we have
+	int last_tk; ///< The type of the last token that we have
 	const char *tokenStart;
 	std::string tkStr; ///< Data contained in the token we have here
 
@@ -305,7 +307,6 @@ public:
 	int currentColumn() { return tokenStart-currentLineStart; }
 
 private:
-//	const std::string &data;
 	const char *data;
 	const char *dataPos;
 	char currCh, nextCh;
@@ -581,8 +582,8 @@ public:
 	virtual std::string getString(); ///< return ""
 
 	virtual std::string getParsableString(const std::string &indentString, const std::string &indent); ///< get Data as a parsable javascript string
-	virtual std::string getVarType();
-	virtual CScriptVarLink *getNumericVar(); ///< returns an Integer, a Double, an Infinity or a NaN
+	virtual std::string getVarType()=0;
+	virtual CScriptVarPtr getNumericVar(); ///< returns an Integer, a Double, an Infinity or a NaN
 
 	/// find 
 	CScriptVarLink *findChild(const std::string &childName); ///< Tries to find a child with the given name, may return 0
@@ -738,6 +739,7 @@ public:
 	virtual bool isNull(); // { return true; }
 	virtual std::string getString(); // { return "null"; };
 	virtual std::string getVarType(); // { return "null"; }
+	virtual CScriptVarPtr getNumericVar(); ///< returns an Integer, a Double, an Infinity or a NaN
 	friend define_newScriptVar_Fnc(Null, CTinyJS* Context, Null_t);
 };
 inline define_newScriptVar_Fnc(Null, CTinyJS* Context, Null_t) { return new CScriptVarNull(Context); }
@@ -796,8 +798,9 @@ public:
 	virtual bool getBool(); // {return data.length()!=0;}
 	virtual double getDouble(); // {return strtod(data.c_str(),0);}
 	virtual std::string getString(); // { return data; }
-	virtual std::string getVarType(); // { return "string"; }
 	virtual std::string getParsableString(); // { return getJSString(data); }
+	virtual std::string getVarType(); // { return "string"; }
+	virtual CScriptVarPtr getNumericVar(); ///< returns an Integer, a Double, an Infinity or a NaN
 protected:
 	std::string data;
 private:
@@ -823,6 +826,7 @@ public:
 	virtual double getDouble(); // {return data;}
 	virtual std::string getString(); // {return int2string(data);}
 	virtual std::string getVarType(); // { return "number"; }
+	virtual CScriptVarPtr getNumericVar(); ///< returns an Integer, a Double, an Infinity or a NaN
 protected:
 	int data;
 };
@@ -858,6 +862,7 @@ public:
 	virtual bool isBool(); // { return true; }
 	virtual std::string getString(); // {return data!=0?"true":"false";}
 	virtual std::string getVarType(); // { return "boolean"; }
+	virtual CScriptVarPtr getNumericVar(); ///< returns an Integer, a Double, an Infinity or a NaN
 	friend define_newScriptVar_Fnc(Bool, CTinyJS* Context, bool);
 };
 inline define_newScriptVar_Fnc(Bool, CTinyJS* Context, bool Obj) { return new CScriptVarBool(Context, Obj); }
@@ -900,6 +905,7 @@ public:
 	virtual double getDouble(); // {return data;}
 	virtual std::string getString(); // {return float2string(data);}
 	virtual std::string getVarType(); // { return "number"; }
+	virtual CScriptVarPtr getNumericVar(); ///< returns an Integer, a Double, an Infinity or a NaN
 private:
 	double data;
 	friend define_newScriptVar_Fnc(Double, CTinyJS* Context, double);

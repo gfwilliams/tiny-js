@@ -6,6 +6,12 @@
 #include <stdint.h>
 #include <string>
 
+//#define LOG_POOL_ALLOCATOR_MEMORY_USAGE
+
+#if defined(_DEBUG) || defined(LOG_POOL_ALLOCATOR_MEMORY_USAGE)
+#	define DEBUG_POOL_ALLOCATOR
+#endif
+
 struct block_head;
 class fixed_size_allocator {
 public:
@@ -21,6 +27,7 @@ private:
 	size_t object_size;
 	void *head_of_free_list;
 	block_head *head;
+#ifdef DEBUG_POOL_ALLOCATOR
 	// Debug
 	std::string name;
 	int allocs;
@@ -28,13 +35,18 @@ private:
 	int current;
 	int max;
 	int blocks;
+#endif
 };
 //**************************************************************************************
 template<typename T, int num_objects=64>
 class fixed_size_object {
 public:
 	static void* operator new(size_t size) {
+#ifdef DEBUG_POOL_ALLOCATOR
 		return fixed_size_allocator::get(size, true, typeid(T).name())->alloc(size);
+#else
+		return fixed_size_allocator::get(size, true)->alloc(size);
+#endif
 	}
 	static void* operator new(size_t size, void* p) {
 		return p;

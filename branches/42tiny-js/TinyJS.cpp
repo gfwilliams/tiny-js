@@ -1237,7 +1237,8 @@ void CScriptTokenizer::tokenizeFunction(TOKEN_VECT &Tokens, bool &Statement, vec
 	vector<int> functionBlockStart, marks;
 	functionBlockStart.push_back(FncData.body.size()+1);
 	l->check('{');
-	tokenizeBlock(FncData.body, Statement, functionBlockStart, marks);
+  bool FncStatement = true; // functions-block starts always in Statement-Level
+  tokenizeBlock(FncData.body, FncStatement, functionBlockStart, marks);
 
 	if(forward) {
 		int tokenInsertIdx = BlockStart.back();
@@ -2799,7 +2800,6 @@ CScriptVarPtr CTinyJS::callFunction(const CScriptVarPtr &Function, std::vector<C
 			delete e;
 			runtimeFlags = old_function_runtimeFlags; // restore runtimeFlags
 			if(exeption_runtimeFlags & RUNTIME_BREAK) {
-				delete e;
 				if(runtimeFlags & RUNTIME_CANBREAK) {
 					runtimeFlags |= RUNTIME_BREAK;
 					execute = false;

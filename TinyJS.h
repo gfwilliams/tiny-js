@@ -30,7 +30,6 @@
 #include <vector>
 #include <map>
 #include <set>
-#include "smart_pointer.h"
 #include "pool_allocator.h"
 #include <stdint.h>
 #include <assert.h>

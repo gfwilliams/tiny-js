@@ -1,5 +1,37 @@
+/*
+ * 42TinyJS
+ *
+ * A fork of TinyJS with the goal to makes a more JavaScript/ECMA compliant engine
+ *
+ * Authored By Armin Diedering <armin@diedering.de>
+ *
+ * Copyright (C) 2010 ardisoft
+ *
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+ * of the Software, and to permit persons to whom the Software is furnished to do
+ * so, subject to the following conditions:
+
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 #include "pool_allocator.h"
-#include <map>
+#include <vector>
+#include <algorithm>
+#include <stdio.h>
+
 struct block {
 	block* next;
 };
@@ -28,8 +60,9 @@ fixed_size_allocator::fixed_size_allocator( size_t numObjects, size_t objectSize
 	frees=
 	max =
 	current=
-	blocks = 0;
+	blocks =
 #endif
+	refs = 0;
 }
 
 fixed_size_allocator::~fixed_size_allocator()
@@ -41,20 +74,23 @@ fixed_size_allocator::~fixed_size_allocator()
 	}
 #ifdef DEBUG_POOL_ALLOCATOR
 #	ifndef LOG_POOL_ALLOCATOR_MEMORY_USAGE
-	if(allocs != frees) {
+	if(refs) {
 #	endif
 	fprintf(stderr, "allocator [%s](%d) destroyed\n", name.c_str(), object_size);
 	fprintf(stderr, "  allocs:%i, ", allocs);
 	fprintf(stderr, "frees:%i, ", frees);
 	fprintf(stderr, "max:%i, ", max);
-	fprintf(stderr, "blocks:%i\n\n", blocks);
+	fprintf(stderr, "blocks:%i\n", blocks);
+	if(refs) fprintf(stderr, "************ %i x not freed ************\n", refs);
+	fprintf(stderr, "\n");
 #	ifndef LOG_POOL_ALLOCATOR_MEMORY_USAGE
 	}
 #	endif
 #endif
 }
 
-void* fixed_size_allocator::alloc( size_t ) {
+void* fixed_size_allocator::_alloc( size_t ) {
+	refs++;
 #ifdef DEBUG_POOL_ALLOCATOR
 	allocs++;current++;
 	if(current>max)max=current;
@@ -86,35 +122,77 @@ void* fixed_size_allocator::alloc( size_t ) {
 #	define ASSERT(X) assert(X)
 #endif
 
-void fixed_size_allocator::free( void* p, size_t ) {
-	if(p == 0) return;
+bool fixed_size_allocator::_free( void* p, size_t ) {
+	if(p == 0) return refs==0;
+	refs--;
 #ifdef DEBUG_POOL_ALLOCATOR
+	ASSERT(refs>=0);
 	frees++;current--;
 #endif
 	block* dead_object = static_cast<block*>(p);
 
 	dead_object->next = static_cast<block*>(head_of_free_list);
 	head_of_free_list = dead_object;
+	return refs==0;
 }
-typedef std::map<size_t, fixed_size_allocator*> allocator_pool_t;
-typedef std::map<size_t, fixed_size_allocator*>::iterator allocator_pool_it;
+typedef std::vector<fixed_size_allocator*> allocator_pool_t;
+typedef allocator_pool_t::iterator allocator_pool_it;
+
+static bool compare_allocator_pool(fixed_size_allocator *allocator, size_t Size) {
+	return allocator->objectSize() < Size;
+}
 
 static class _allocator_pool
 {
 public:
-	_allocator_pool() : last_allocate_allocator(0), last_free_allocator(0) {
+	_allocator_pool() : allocator_pool(0) {
 #ifdef LOG_POOL_ALLOCATOR_MEMORY_USAGE
 	last_ok = last_access = 0;
 #endif
 	}
 	~_allocator_pool() {
-		for(allocator_pool_it it = allocator_pool.begin(); it!=allocator_pool.end(); it++)
-			delete it->second;
+		if(allocator_pool && !allocator_pool->empty())
+			for(allocator_pool_it it = allocator_pool->begin(); it!=allocator_pool->end(); it++)
+				delete *it;
+		delete allocator_pool;
 #ifdef LOG_POOL_ALLOCATOR_MEMORY_USAGE
 		if(last_access) fprintf(stderr, "last_ok:%i(%i)=%i%%\n", last_ok, last_access, (last_ok*100)/last_access);
 #endif
 	}
-	allocator_pool_t allocator_pool;
+	allocator_pool_it *findAllocator(size_t size, allocator_pool_it &it) {
+		if(!allocator_pool) return 0;
+		it = lower_bound(allocator_pool->begin(), allocator_pool->end(), size, compare_allocator_pool);
+		if(it != allocator_pool->end() && (*it)->objectSize() == size)
+			return &it;
+		return 0;
+	}
+	fixed_size_allocator *checkLastAllocator(size_t size) {
+#ifdef LOG_POOL_ALLOCATOR_MEMORY_USAGE
+		last_access++;
+#endif
+		if(last_allocate_allocator && last_allocate_allocator->objectSize()==size) {
+#ifdef LOG_POOL_ALLOCATOR_MEMORY_USAGE
+			last_ok++;
+#endif
+			return last_allocate_allocator;
+		}
+		else if(last_free_allocator && last_free_allocator->objectSize()==size) {
+#ifdef LOG_POOL_ALLOCATOR_MEMORY_USAGE
+			last_ok++;
+#endif
+			return last_free_allocator;
+		} else
+			return 0;
+	}
+	void removeAllocator(allocator_pool_it it) {
+		if(last_allocate_allocator == *it) last_allocate_allocator = 0;
+		if(last_free_allocator == *it) last_free_allocator = 0;
+		delete *it; allocator_pool->erase(it);
+		if(allocator_pool->empty()) { 
+			delete allocator_pool; allocator_pool=0; 
+		}
+	}
+	allocator_pool_t *allocator_pool;
 	fixed_size_allocator *last_allocate_allocator;
 	fixed_size_allocator *last_free_allocator;
 #ifdef LOG_POOL_ALLOCATOR_MEMORY_USAGE
@@ -122,28 +200,54 @@ public:
 	int last_access;
 #endif
 }allocator_pool;
-fixed_size_allocator *fixed_size_allocator::get(size_t size, bool for_alloc, const char *for_class) {
-#ifdef LOG_POOL_ALLOCATOR_MEMORY_USAGE
-	allocator_pool.last_access++;
-#endif
-	if(allocator_pool.last_allocate_allocator && allocator_pool.last_allocate_allocator->object_size==size) {
-#ifdef LOG_POOL_ALLOCATOR_MEMORY_USAGE
-		allocator_pool.last_ok++;
-#endif
-		return allocator_pool.last_allocate_allocator;
+
+//#define WITH_TIME_LOGGER
+#include "time_logger.h"
+
+TimeLoggerCreate(alloc, false);
+TimeLoggerCreate(free, false);
+fixed_size_allocator_lock *fixed_size_allocator::locker = 0;
+class lock_help {
+public:
+	lock_help() { if(fixed_size_allocator::locker) fixed_size_allocator::locker->lock(); }
+	~lock_help() { if(fixed_size_allocator::locker) fixed_size_allocator::locker->unlock(); }
+};
+void* fixed_size_allocator::alloc(size_t size, const char *for_class) {
+	TimeLoggerHelper(alloc);
+	lock_help lock;
+	if(!allocator_pool.allocator_pool) {
+		allocator_pool.allocator_pool = new allocator_pool_t();
+		allocator_pool.last_allocate_allocator = allocator_pool.last_free_allocator = 0;
 	}
-	else if(allocator_pool.last_free_allocator && allocator_pool.last_free_allocator->object_size==size) {
-#ifdef LOG_POOL_ALLOCATOR_MEMORY_USAGE
-		allocator_pool.last_ok++;
-#endif
-		return allocator_pool.last_free_allocator;
+	fixed_size_allocator *last = allocator_pool.checkLastAllocator(size);
+	if(last) 
+		return last->_alloc(size);
+	else {
+		allocator_pool_it it; if(allocator_pool.findAllocator(size, it))
+			return (allocator_pool.last_allocate_allocator = *(it))->_alloc(size);
+		else {
+			return (allocator_pool.last_allocate_allocator = (*allocator_pool.allocator_pool->insert(it, new fixed_size_allocator(64, size, for_class))))->_alloc(size);
+		}
 	}
-	allocator_pool_it it = allocator_pool.allocator_pool.find(size);
-	if(it != allocator_pool.allocator_pool.end())
-		return (for_alloc ? allocator_pool.last_allocate_allocator : allocator_pool.last_free_allocator) = it->second;
-	else if(for_alloc) {
-		return allocator_pool.last_allocate_allocator = allocator_pool.allocator_pool[size] = new fixed_size_allocator(64, size, for_class);
-	} else
+}
+void fixed_size_allocator::free(void *p, size_t size) {
+	TimeLoggerHelper(free);
+	lock_help lock;
+	if(!allocator_pool.allocator_pool) {
 		ASSERT(0/* free called but not allocator defined*/);
-	return 0;
+		return;
+	}
+	fixed_size_allocator *last = allocator_pool.checkLastAllocator(size);
+	if(last) { 
+		if( last->_free(p, size) ) {
+			allocator_pool_it it; if(allocator_pool.findAllocator(size, it))
+				allocator_pool.removeAllocator(it);
+		}
+	} else {
+		allocator_pool_it it; if(allocator_pool.findAllocator(size, it)) {
+			if( (allocator_pool.last_free_allocator = *it)->_free(p, size) )
+				allocator_pool.removeAllocator(it);
+		} else
+			ASSERT(0/* free called but not allocator defined*/);
+	}
 }

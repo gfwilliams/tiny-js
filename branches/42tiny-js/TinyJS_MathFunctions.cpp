@@ -3,8 +3,39 @@
  *
  * A single-file Javascript-alike engine
  *
- * -  Math and Trigonometry functions  -
+ * -  Math and Trigonometry functions
  *
+ * Authored By O.Z.L.B. <ozlbinfo@gmail.com>
+ *
+ * Copyright (C) 2011 O.Z.L.B.
+ *
+
+ * 42TinyJS
+ *
+ * A fork of TinyJS with the goal to makes a more JavaScript/ECMA compliant engine
+ *
+ * Authored / Changed By Armin Diedering <armin@diedering.de>
+ *
+ * Copyright (C) 2010 ardisoft
+ *
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+ * of the Software, and to permit persons to whom the Software is furnished to do
+ * so, subject to the following conditions:
+
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
  */
 
 #include <math.h>
@@ -31,13 +62,13 @@ using namespace std;
 #define F_RNG(a,min,max)    ((a)<(min) ? min : ((a)>(max) ? max : a ))
  
 //CScriptVar shortcut macro
-#define scIsInt(a)          ( c->getParameter(a)->isInt() )
-#define scIsDouble(a)       ( c->getParameter(a)->isDouble() )  
-#define scGetInt(a)         ( c->getParameter(a)->getInt() )
-#define scGetDouble(a)      ( c->getParameter(a)->getDouble() )  
+#define scIsInt(a)          ( c->getArgument(a)->isInt() )
+#define scIsDouble(a)       ( c->getArgument(a)->isDouble() )  
+#define scGetInt(a)         ( c->getArgument(a)->getInt() )
+#define scGetDouble(a)      ( c->getArgument(a)->getDouble() )  
 #define scReturnInt(a)      ( c->setReturnVar(c->newScriptVar((int)a)) )
 #define scReturnDouble(a)   ( c->setReturnVar(c->newScriptVar((double)a)) )
-#define scReturnNaN()       ( c->setReturnVar(c->newScriptVar(NaN)) )
+#define scReturnNaN()       do { c->setReturnVar(c->constScriptVar(NaN)); return; } while(0)
 
 #ifdef _MSC_VER
 namespace
@@ -68,7 +99,7 @@ namespace
 }
 #endif
 
-#define GET_PARAMETER_AS_NUMERIC_VAR(v,n) CScriptVarPtr v = c->getParameter(n)->getNumericVar()
+#define GET_PARAMETER_AS_NUMERIC_VAR(v,n) CScriptVarPtr v = c->getArgument(n)->getNumericVar()
 #define RETURN_NAN_IS_NAN(v) do{ if(v->isNaN()) { c->setReturnVar(v); return; } }while(0)
 #define RETURN_NAN_IS_NAN_OR_INFINITY(v) do{ if(v->isNaN() || v->isInfinity()) { c->setReturnVar(v); return; } }while(0)
 #define RETURN_INFINITY_IS_INFINITY(v) do{ if(v->isInfinity()) { c->setReturnVar(v); return; } }while(0)
@@ -105,8 +136,8 @@ static void scMathFloor(const CFunctionsScopePtr &c, void *userdata) {
 
 //Math.min(a,b) - returns minimum of two given values 
 static void scMathMin(const CFunctionsScopePtr &c, void *userdata) {
-	int length = c->getParameterLength();
-	CScriptVarSmartLink ret(c->newScriptVar(InfinityPositive));
+	int length = c->getArgumentsLength();
+	CScriptVarLinkPtr ret(c->constScriptVar(InfinityPositive));
 	for(int i=0; i<length; i++)
 	{
 		GET_PARAMETER_AS_NUMERIC_VAR(a,i);RETURN_NAN_IS_NAN(a);
@@ -120,8 +151,8 @@ static void scMathMin(const CFunctionsScopePtr &c, void *userdata) {
 
 //Math.max(a,b) - returns maximum of two given values  
 static void scMathMax(const CFunctionsScopePtr &c, void *userdata) {
-	int length = c->getParameterLength();
-	CScriptVarSmartLink ret((CScriptVarPtr)newScriptVar(c->getContext(), Infinity(-1)));
+	int length = c->getArgumentsLength();
+	CScriptVarLinkPtr ret(c->constScriptVar(InfinityNegative));
 	for(int i=0; i<length; i++)
 	{
 		GET_PARAMETER_AS_NUMERIC_VAR(a,i);RETURN_NAN_IS_NAN(a);
@@ -144,7 +175,7 @@ static void scMathRange(const CFunctionsScopePtr &c, void *userdata) {
 
 	check = a->mathsOp(b, LEX_LEQUAL);
 	check_bool = check->getBool();
-	if(!check_bool) { scReturnNaN(); return; }
+	if(!check_bool) scReturnNaN();
 	
 	check = x->mathsOp(a, '<');
 	check_bool = check->getBool(); 
@@ -262,8 +293,8 @@ static void scMathLog(const CFunctionsScopePtr &c, void *userdata) {
 	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a); 
 	int a_i = a->isInfinity();
 	double a_d = a->getDouble();
-	if(a_i>0) { c->setReturnVar(c->newScriptVar(InfinityPositive)); return; }
-	else if(a_i<0 || a_d<0.0) { scReturnNaN(); return; }
+	if(a_i>0) { c->setReturnVar(c->constScriptVar(InfinityPositive)); return; }
+	else if(a_i<0 || a_d<0.0) scReturnNaN();
 	scReturnDouble( log( a_d ) );
 }
 
@@ -272,8 +303,8 @@ static void scMathLog10(const CFunctionsScopePtr &c, void *userdata) {
 	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a); 
 	int a_i = a->isInfinity();
 	double a_d = a->getDouble();
-	if(a_i>0) { c->setReturnVar(c->newScriptVar(InfinityPositive)); return; }
-	else if(a_i<0 || a_d<0.0) { c->setReturnVar(c->newScriptVar(NaN)); return; }
+	if(a_i>0) { c->setReturnVar(c->constScriptVar(InfinityPositive)); return; }
+	else if(a_i<0 || a_d<0.0) scReturnNaN();
 	scReturnDouble( log10( a_d ) );
 }
 
@@ -281,7 +312,7 @@ static void scMathLog10(const CFunctionsScopePtr &c, void *userdata) {
 static void scMathExp(const CFunctionsScopePtr &c, void *userdata) {
 	GET_PARAMETER_AS_NUMERIC_VAR(a,"a"); RETURN_NAN_IS_NAN(a);
 	int a_i = a->isInfinity();
-	if(a_i>0) { c->setReturnVar(c->newScriptVar(InfinityPositive)); return; }
+	if(a_i>0) { c->setReturnVar(c->constScriptVar(InfinityPositive)); return; }
 	else if(a_i<0) { c->setReturnVar(c->newScriptVar(0)); return; }
 	scReturnDouble( exp( GET_DOUBLE(a) ) );
 }
@@ -293,7 +324,7 @@ static void scMathPow(const CFunctionsScopePtr &c, void *userdata) {
 	int a_i = a->isInfinity(), b_i = b->isInfinity();
 	double a_d = a->getDouble(), b_d = b->getDouble();
 	if(b_i>0) {
-		if(a_i || a_d>1.0 || a_d<-1.0) { c->setReturnVar(c->newScriptVar(InfinityPositive)); return; }
+		if(a_i || a_d>1.0 || a_d<-1.0) { c->setReturnVar(c->constScriptVar(InfinityPositive)); return; }
 		else if(a_i==0 && (a_d==1.0 || a_d==-1.0)) { c->setReturnVar(c->newScriptVar(1)); return; }
 		if(a_i==0 && a_d<1.0 && a_d>-1.0) { c->setReturnVar(c->newScriptVar(0)); return; }
 	} else if(b_i<0) { c->setReturnVar(c->newScriptVar(0)); return; }
@@ -301,7 +332,7 @@ static void scMathPow(const CFunctionsScopePtr &c, void *userdata) {
 
 	if(a_i) a_d = a_i;
 	double result = pow(a_d, b_d);
-	if(a_i) { c->setReturnVar(c->newScriptVar(Infinity(result>=0.0?1:-1))); return; }
+	if(a_i) { c->setReturnVar(c->constScriptVar(Infinity(result>=0.0?1:-1))); return; }
 	scReturnDouble( result );
 }
 
@@ -320,7 +351,7 @@ static void scMathSqrt(const CFunctionsScopePtr &c, void *userdata) {
 // ----------------------------------------------- Register Functions
 void registerMathFunctions(CTinyJS *tinyJS) {
 
-	 CScriptVarLink *Math = tinyJS->getRoot()->addChild("Math", tinyJS->newScriptVar(Object));
+	 CScriptVarPtr Math = tinyJS->getRoot()->addChild("Math", tinyJS->newScriptVar(Object));
 
 	 // --- Math and Trigonometry functions ---
 	 tinyJS->addNative("function Math.abs(a)", scMathAbs, 0);
@@ -336,13 +367,13 @@ void registerMathFunctions(CTinyJS *tinyJS) {
 
 // atan2, ceil, floor, random, round, 
 
-	 (*Math)->addChild("LN2", tinyJS->newScriptVar(k_LN2), SCRIPTVARLINK_ENUMERABLE);
-	 (*Math)->addChild("LN10", tinyJS->newScriptVar(k_LN10), SCRIPTVARLINK_ENUMERABLE);
-	 (*Math)->addChild("LOG2E", tinyJS->newScriptVar(k_LOG2E), SCRIPTVARLINK_ENUMERABLE);
-	 (*Math)->addChild("LOG10E", tinyJS->newScriptVar(k_LOG10E), SCRIPTVARLINK_ENUMERABLE);
-	 (*Math)->addChild("SQRT1_2", tinyJS->newScriptVar(k_SQRT1_2), SCRIPTVARLINK_ENUMERABLE);
-	 (*Math)->addChild("SQRT2", tinyJS->newScriptVar(k_SQRT2), SCRIPTVARLINK_ENUMERABLE);
-	 (*Math)->addChild("PI", tinyJS->newScriptVar(k_PI), SCRIPTVARLINK_ENUMERABLE);
+	 Math->addChild("LN2", tinyJS->newScriptVar(k_LN2), SCRIPTVARLINK_ENUMERABLE);
+	 Math->addChild("LN10", tinyJS->newScriptVar(k_LN10), SCRIPTVARLINK_ENUMERABLE);
+	 Math->addChild("LOG2E", tinyJS->newScriptVar(k_LOG2E), SCRIPTVARLINK_ENUMERABLE);
+	 Math->addChild("LOG10E", tinyJS->newScriptVar(k_LOG10E), SCRIPTVARLINK_ENUMERABLE);
+	 Math->addChild("SQRT1_2", tinyJS->newScriptVar(k_SQRT1_2), SCRIPTVARLINK_ENUMERABLE);
+	 Math->addChild("SQRT2", tinyJS->newScriptVar(k_SQRT2), SCRIPTVARLINK_ENUMERABLE);
+	 Math->addChild("PI", tinyJS->newScriptVar(k_PI), SCRIPTVARLINK_ENUMERABLE);
 //    tinyJS->addNative("function Math.PI()", scMathPI, 0);
 	 tinyJS->addNative("function Math.toDegrees(a)", scMathToDegrees, 0);
 	 tinyJS->addNative("function Math.toRadians(a)", scMathToRadians, 0);
@@ -359,7 +390,7 @@ void registerMathFunctions(CTinyJS *tinyJS) {
 	 tinyJS->addNative("function Math.tanh(a)", scMathTanh, 0);
 	 tinyJS->addNative("function Math.atanh(a)", scMathATanh, 0);
 		 
-	 (*Math)->addChild("E", tinyJS->newScriptVar(k_E), SCRIPTVARLINK_ENUMERABLE);
+	 Math->addChild("E", tinyJS->newScriptVar(k_E), SCRIPTVARLINK_ENUMERABLE);
 //	 tinyJS->addNative("function Math.E()", scMathE, 0);
 	 tinyJS->addNative("function Math.log(a)", scMathLog, 0);
 	 tinyJS->addNative("function Math.log10(a)", scMathLog10, 0);

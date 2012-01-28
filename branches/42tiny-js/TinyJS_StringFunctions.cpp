@@ -1,36 +1,30 @@
 /*
- * TinyJS
- *
- * A single-file Javascript-alike engine
- *
- * Authored By Gordon Williams <gw@pur3.co.uk>
- *
- * Copyright (C) 2009 Pur3 Ltd
- *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
- * Boston, MA 02111-1307, USA.
- */
-/*
  * 42TinyJS
  *
- * A fork of TinyJS
- *
- * Copyright (C) 2010 ardisoft
+ * A fork of TinyJS with the goal to makes a more JavaScript/ECMA compliant engine
  *
  * Authored By Armin Diedering <armin@diedering.de>
  *
+ * Copyright (C) 2010 ardisoft
+ *
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+ * of the Software, and to permit persons to whom the Software is furnished to do
+ * so, subject to the following conditions:
+
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
  */
 
 #include <algorithm>
@@ -40,8 +34,8 @@ using namespace std;
 // ----------------------------------------------- Actual Functions
 
 static void scStringCharAt(const CFunctionsScopePtr &c, void *) {
-	string str = c->getParameter("this")->getString();
-	int p = c->getParameter("pos")->getInt();
+	string str = c->getArgument("this")->getString();
+	int p = c->getArgument("pos")->getInt();
 	if (p>=0 && p<(int)str.length())
 		c->setReturnVar(c->newScriptVar(str.substr(p, 1)));
 	else
@@ -49,8 +43,8 @@ static void scStringCharAt(const CFunctionsScopePtr &c, void *) {
 }
 
 static void scStringCharCodeAt(const CFunctionsScopePtr &c, void *) {
-	string str = c->getParameter("this")->getString();
-	int p = c->getParameter("pos")->getInt();
+	string str = c->getArgument("this")->getString();
+	int p = c->getArgument("pos")->getInt();
 	if (p>=0 && p<(int)str.length())
 		c->setReturnVar(c->newScriptVar(str.at(p)));
 	else
@@ -58,30 +52,30 @@ static void scStringCharCodeAt(const CFunctionsScopePtr &c, void *) {
 }
 
 static void scStringConcat(const CFunctionsScopePtr &c, void *userdata) {
-	int length = c->getParameterLength();
-	string str = c->getParameter("this")->getString();
+	int length = c->getArgumentsLength();
+	string str = c->getArgument("this")->getString();
 	for(int i=(int)userdata; i<length; i++)
-		str.append(c->getParameter(i)->getString());
+		str.append(c->getArgument(i)->getString());
 	c->setReturnVar(c->newScriptVar(str));
 }
 
 static void scStringIndexOf(const CFunctionsScopePtr &c, void *userdata) {
-	string str = c->getParameter("this")->getString();
-	string search = c->getParameter("search")->getString();
+	string str = c->getArgument("this")->getString();
+	string search = c->getArgument("search")->getString();
 	size_t p = (userdata==0) ? str.find(search) : str.rfind(search);
 	int val = (p==string::npos) ? -1 : p;
 	c->setReturnVar(c->newScriptVar(val));
 }
 
 static void scStringSlice(const CFunctionsScopePtr &c, void *userdata) {
-	string str = c->getParameter("this")->getString();
-	int length = c->getParameterLength()-((int)userdata & 1);
+	string str = c->getArgument("this")->getString();
+	int length = c->getArgumentsLength()-((int)userdata & 1);
 	bool slice = ((int)userdata & 2) == 0;
-	int start = c->getParameter("start")->getInt();
+	int start = c->getArgument("start")->getInt();
 	int end = (int)str.size();
 	if(slice && start<0) start = str.size()+start;
 	if(length>1) {
-		end = c->getParameter("end")->getInt();
+		end = c->getArgument("end")->getInt();
 		if(slice && end<0) end = str.size()+end;
 	}
 	if(!slice && end < start) { end^=start; start^=end; end^=start; }
@@ -95,9 +89,9 @@ static void scStringSlice(const CFunctionsScopePtr &c, void *userdata) {
 }
 
 static void scStringSplit(const CFunctionsScopePtr &c, void *) {
-	string str = c->getParameter("this")->getString();
-	CScriptVarPtr sep_var = c->getParameter("separator");
-	CScriptVarPtr limit_var = c->getParameter("limit");
+	string str = c->getArgument("this")->getString();
+	CScriptVarPtr sep_var = c->getArgument("separator");
+	CScriptVarPtr limit_var = c->getArgument("limit");
 	int limit = limit_var->isUndefined() ? 0x7fffffff : limit_var->getInt();
 
 	CScriptVarPtr result(newScriptVar(c->getContext(), Array));
@@ -125,32 +119,32 @@ static void scStringSplit(const CFunctionsScopePtr &c, void *) {
 }
 
 static void scStringSubstr(const CFunctionsScopePtr &c, void *userdata) {
-	string str = c->getParameter("this")->getString();
-	int length = c->getParameterLength()-(int)userdata;
-	int start = c->getParameter("start")->getInt();
+	string str = c->getArgument("this")->getString();
+	int length = c->getArgumentsLength()-(int)userdata;
+	int start = c->getArgument("start")->getInt();
 	if(start<0 || start>=(int)str.size()) 
 		c->setReturnVar(c->newScriptVar(""));
 	else if(length>1) {
-		int length = c->getParameter("length")->getInt();
+		int length = c->getArgument("length")->getInt();
 		c->setReturnVar(c->newScriptVar(str.substr(start, length)));
 	} else
 		c->setReturnVar(c->newScriptVar(str.substr(start)));
 }
 
 static void scStringToLowerCase(const CFunctionsScopePtr &c, void *) {
-	string str = c->getParameter("this")->getString();
+	string str = c->getArgument("this")->getString();
 	transform(str.begin(), str.end(), str.begin(), ::tolower);
 	c->setReturnVar(c->newScriptVar(str));
 }
 
 static void scStringToUpperCase(const CFunctionsScopePtr &c, void *) {
-	string str = c->getParameter("this")->getString();
+	string str = c->getArgument("this")->getString();
 	transform(str.begin(), str.end(), str.begin(), ::toupper);
 	c->setReturnVar(c->newScriptVar(str));
 }
 
 static void scStringTrim(const CFunctionsScopePtr &c, void *userdata) {
-	string str = c->getParameter("this")->getString();
+	string str = c->getArgument("this")->getString();
 	string::size_type start = 0;
 	string::size_type end = string::npos;
 	if((((int)userdata) & 2) == 0) {
@@ -167,7 +161,7 @@ static void scStringTrim(const CFunctionsScopePtr &c, void *userdata) {
 
 
 static void scCharToInt(const CFunctionsScopePtr &c, void *) {
-	string str = c->getParameter("ch")->getString();;
+	string str = c->getArgument("ch")->getString();;
 	int val = 0;
 	if (str.length()>0)
 		val = (int)str.c_str()[0];
@@ -177,7 +171,7 @@ static void scCharToInt(const CFunctionsScopePtr &c, void *) {
 
 static void scStringFromCharCode(const CFunctionsScopePtr &c, void *) {
 	char str[2];
-	str[0] = c->getParameter("char")->getInt();
+	str[0] = c->getArgument("char")->getInt();
 	str[1] = 0;
 	c->setReturnVar(c->newScriptVar(str));
 }

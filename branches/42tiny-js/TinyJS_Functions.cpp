@@ -7,21 +7,35 @@
  *
  * Copyright (C) 2009 Pur3 Ltd
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+
+ * 42TinyJS
  *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ * A fork of TinyJS with the goal to makes a more JavaScript/ECMA compliant engine
  *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
- * Boston, MA 02111-1307, USA.
+ * Authored / Changed By Armin Diedering <armin@diedering.de>
+ *
+ * Copyright (C) 2010 ardisoft
+ *
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+ * of the Software, and to permit persons to whom the Software is furnished to do
+ * so, subject to the following conditions:
+
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
  */
+
 
 #include <math.h>
 #include <cstdlib>
@@ -34,39 +48,23 @@ using namespace std;
 
 static void scTrace(const CFunctionsScopePtr &c, void * userdata) {
 	CTinyJS *js = (CTinyJS*)userdata;
-	if(c->getParameterLength())
-		c->getParameter(0)->trace();
+	if(c->getArgumentsLength())
+		c->getArgument(0)->trace();
 	else
 		js->getRoot()->trace("root");
 }
 
 static void scObjectDump(const CFunctionsScopePtr &c, void *) {
-	c->getParameter("this")->trace("> ");
+	c->getArgument("this")->trace("> ");
 }
 
 static void scObjectClone(const CFunctionsScopePtr &c, void *) {
-	CScriptVarPtr obj = c->getParameter("this");
+	CScriptVarPtr obj = c->getArgument("this");
 	c->setReturnVar(obj->clone());
 }
 
-static void scCharToInt(const CFunctionsScopePtr &c, void *) {
-	string str = c->getParameter("ch")->getString();;
-	int val = 0;
-	if (str.length()>0)
-		val = (int)str.c_str()[0];
-	c->setReturnVar(c->newScriptVar(val));
-}
-
-
-static void scStringFromCharCode(const CFunctionsScopePtr &c, void *) {
-	char str[2];
-	str[0] = c->getParameter("char")->getInt();
-	str[1] = 0;
-	c->setReturnVar(c->newScriptVar(str));
-}
-
 static void scIntegerValueOf(const CFunctionsScopePtr &c, void *) {
-	string str = c->getParameter("str")->getString();
+	string str = c->getArgument("str")->getString();
 
 	int val = 0;
 	if (str.length()==1)
@@ -76,36 +74,36 @@ static void scIntegerValueOf(const CFunctionsScopePtr &c, void *) {
 
 static void scJSONStringify(const CFunctionsScopePtr &c, void *) {
 	string indent = "   ", indentString;
-	c->setReturnVar(c->newScriptVar(c->getParameter("obj")->getParsableString(indentString, indent)));
+	c->setReturnVar(c->newScriptVar(c->getArgument("obj")->getParsableString(indentString, indent)));
 }
 
 static void scArrayContains(const CFunctionsScopePtr &c, void *data) {
-	CScriptVarPtr obj = c->getParameter("obj");
-	CScriptVarPtr arr = c->getParameter("this");
+	CScriptVarPtr obj = c->getArgument("obj");
+	CScriptVarPtr arr = c->getArgument("this");
 
 	int l = arr->getArrayLength();
-	CScriptVarSmartLink equal;
+	CScriptVarPtr equal = c->constScriptVar(Undefined);
 	for (int i=0;i<l;i++) {
 		equal = obj->mathsOp(arr->getArrayIndex(i), LEX_EQUAL);
-		if((*equal)->getBool()) {
-			c->setReturnVar(c->newScriptVar(true));
+		if(equal->getBool()) {
+			c->setReturnVar(c->constScriptVar(true));
 			return;
 		}
 	}
-	c->setReturnVar(c->newScriptVar(false));
+	c->setReturnVar(c->constScriptVar(false));
 }
 
 static void scArrayRemove(const CFunctionsScopePtr &c, void *data) {
-	CScriptVarPtr obj = c->getParameter("obj");
-	CScriptVarPtr arr = c->getParameter("this");
+	CScriptVarPtr obj = c->getArgument("obj");
+	CScriptVarPtr arr = c->getArgument("this");
 	int i;
 	vector<int> removedIndices;
 
 	int l = arr->getArrayLength();
-	CScriptVarSmartLink equal;
+	CScriptVarPtr equal = c->constScriptVar(Undefined);
 	for (i=0;i<l;i++) {
 		equal = obj->mathsOp(arr->getArrayIndex(i), LEX_EQUAL);
-		if((*equal)->getBool()) {
+		if(equal->getBool()) {
 			removedIndices.push_back(i);
 		}
 	}
@@ -131,8 +129,8 @@ static void scArrayRemove(const CFunctionsScopePtr &c, void *data) {
 }
 
 static void scArrayJoin(const CFunctionsScopePtr &c, void *data) {
-	string sep = c->getParameter("separator")->getString();
-	CScriptVarPtr arr = c->getParameter("this");
+	string sep = c->getArgument("separator")->getString();
+	CScriptVarPtr arr = c->getArgument("this");
 
 	ostringstream sstr;
 	int l = arr->getArrayLength();

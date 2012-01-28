@@ -77,7 +77,6 @@
   <ItemGroup>
     <ClInclude Include="pool_allocator.h" />
     <ClInclude Include="smart_pointer.h" />
-    <ClInclude Include="targetver.h" />
     <ClInclude Include="time_logger.h" />
     <ClInclude Include="TinyJS.h" />
     <ClInclude Include="TinyJS_Functions.h" />

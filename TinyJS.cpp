@@ -101,6 +101,8 @@
    Version 0.31 :  Add exec() to TinyJS functions
                    Now print quoted JSON that can be read by PHP/Python parsers
                    Fixed postfix increment operator
+   Version 0.32 :  Fixed Math.randInt on 32 bit PCs, where it was broken
+   Version 0.33 :  Fixed Memory leak + brokenness on === comparison
 
     NOTE:
           Constructing an array with an initial length 'Array(5)' doesn't work
@@ -113,6 +115,7 @@
     TODO:
           Utility va-args style function in TinyJS for executing a function directly
           Merge the parsing of expressions/statements so eval("statement") works like we'd expect.
+          Move 'shift' implementation into mathsOp
 
  */
 
@@ -1023,8 +1026,13 @@ CScriptVar *CScriptVar::mathsOp(CScriptVar *b, int op) {
     if (op == LEX_TYPEEQUAL || op == LEX_NTYPEEQUAL) {
       // check type first, then call again to check data
       bool eql = ((a->flags & SCRIPTVAR_VARTYPEMASK) ==
-                  (b->flags & SCRIPTVAR_VARTYPEMASK)) &&
-                 a->mathsOp(b, LEX_EQUAL);
+                  (b->flags & SCRIPTVAR_VARTYPEMASK));
+      if (eql) {
+        CScriptVar *contents = a->mathsOp(b, LEX_EQUAL);
+        if (!contents->getBool()) eql = false;
+        if (!contents->refs) delete contents;
+      }
+                 ;
       if (op == LEX_TYPEEQUAL)
         return new CScriptVar(eql);
       else
@@ -1524,7 +1532,7 @@ CScriptVarLink *CTinyJS::functionCall(bool &execute, CScriptVarLink *function, C
       if (l->tk!=')') l->match(',');
     }
     l->match(')');
-    if (l->tk == '{') {
+    if (l->tk == '{') { // TODO: why is this here?
       block(execute);
     }
     /* function will be a blank scriptvarlink if we're not executing,

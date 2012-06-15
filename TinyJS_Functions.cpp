@@ -56,8 +56,7 @@ void scMathRand(CScriptVar *c, void *) {
 void scMathRandInt(CScriptVar *c, void *) {
     int min = c->getParameter("min")->getInt();
     int max = c->getParameter("max")->getInt();
-    int val = min + (int)((long)rand()*(1+max-min)/RAND_MAX);
-    if (val>max) val=max;
+    int val = min + (int)(rand()%(1+max-min));
     c->getReturnVar()->setInt(val);
 }
 

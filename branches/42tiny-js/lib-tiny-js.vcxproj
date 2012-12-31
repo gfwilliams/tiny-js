@@ -44,6 +44,7 @@
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Build\$(ProjectName)\$(Configuration)\</IntDir>
     <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">$(SolutionDir)$(Configuration)\</OutDir>
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Build\$(ProjectName)\$(Configuration)\</IntDir>
+    <IncludePath Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">E:\Eigene Dateien\Visual Studio 2010\Projects\42tiny-js\pthread\pthreads-w32-2-9-1-release;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -73,15 +74,17 @@
     <ClCompile Include="TinyJS_Functions.cpp" />
     <ClCompile Include="TinyJS_MathFunctions.cpp" />
     <ClCompile Include="TinyJS_StringFunctions.cpp" />
+    <ClCompile Include="TinyJS_Threading.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="config.h" />
     <ClInclude Include="pool_allocator.h" />
-    <ClInclude Include="smart_pointer.h" />
     <ClInclude Include="time_logger.h" />
     <ClInclude Include="TinyJS.h" />
     <ClInclude Include="TinyJS_Functions.h" />
     <ClInclude Include="TinyJS_MathFunctions.h" />
     <ClInclude Include="TinyJS_StringFunctions.h" />
+    <ClInclude Include="TinyJS_Threading.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

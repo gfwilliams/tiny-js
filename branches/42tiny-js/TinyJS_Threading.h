@@ -1,18 +1,13 @@
+#ifndef TinyJS_Threading_h__
+#define TinyJS_Threading_h__
+#include "config.h"
+#ifndef NO_THREADING
 /*
- * TinyJS
- *
- * A single-file Javascript-alike engine
- *
- * Authored By Gordon Williams <gw@pur3.co.uk>
- *
- * Copyright (C) 2009 Pur3 Ltd
- *
-
  * 42TinyJS
  *
  * A fork of TinyJS with the goal to makes a more JavaScript/ECMA compliant engine
  *
- * Authored / Changed By Armin Diedering <armin@diedering.de>
+ * Authored By Armin Diedering <armin@diedering.de>
  *
  * Copyright (C) 2010-2012 ardisoft
  *
@@ -36,14 +31,40 @@
  * SOFTWARE.
  */
 
-#pragma message("The include "__FILE__" is deprecated - Functions now registered by default")
+class CScriptMutex {
+public:
+	CScriptMutex();
+	~CScriptMutex();
+	void lock() { mutex->lock(); }
+	void unlock() { mutex->unlock(); }
+	class CScriptMutex_t{
+	public:
+//		virtual ~CScriptMutex_t()=0;
+		virtual void lock()=0;
+		virtual void unlock()=0;
+	};
+private:
+	CScriptMutex_t *mutex;
 
-#ifndef TINYJS_FUNCTIONS_H
-#define TINYJS_FUNCTIONS_H
+};
 
-#include "TinyJS.h"
+class CScriptThread {
+public:
+	CScriptThread();
+	virtual ~CScriptThread();
+	void Run() { thread->Run(); }
+	int Stop() { return thread->Stop(); }
+	virtual int ThreadFnc()=0;
+	bool isActiv() { return thread->isActiv(); }
+	class CScriptThread_t{
+	public:
+		virtual void Run()=0;
+		virtual int Stop()=0;
+		virtual bool isActiv()=0;
+	};
+private:
+	CScriptThread_t *thread;
+};
 
-/// Register useful functions with the TinyJS interpreter
-extern void DEPRECATED("is deprecated - Functions now registered by default") registerFunctions(CTinyJS *tinyJS);
-
-#endif
+#endif // NO_THREADING
+#endif // TinyJS_Threading_h__

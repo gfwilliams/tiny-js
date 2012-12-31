@@ -14,7 +14,7 @@
  *
  * Authored / Changed By Armin Diedering <armin@diedering.de>
  *
- * Copyright (C) 2010 ardisoft
+ * Copyright (C) 2010-2012 ardisoft
  *
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -55,9 +55,9 @@
 #define _CRT_SECURE_NO_WARNINGS
 
 #include "TinyJS.h"
-#include "TinyJS_Functions.h"
-#include "TinyJS_MathFunctions.h"
-#include "TinyJS_StringFunctions.h"
+//#include "TinyJS_Functions.h"
+//#include "TinyJS_MathFunctions.h"
+//#include "TinyJS_StringFunctions.h"
 #include <assert.h>
 #include <sys/stat.h>
 #include <string>
@@ -228,7 +228,9 @@ public:
 	}
 	bool active;
 } end;
-
+void js_print(const CFunctionsScopePtr &v, void *) {
+	printf("> %s\n", v->getArgument("text")->toString().c_str());
+}
 bool run_test(const char *filename) {
   printf("TEST %s ", filename);
   struct stat results;
@@ -250,20 +252,22 @@ bool run_test(const char *filename) {
   fclose(file);
 
   CTinyJS s;
-  registerFunctions(&s);
-  registerMathFunctions(&s);
-  registerStringFunctions(&s);
+  s.addNative("function print(text)", &js_print, 0);
+
+//  registerFunctions(&s);
+//  registerMathFunctions(&s);
+//  registerStringFunctions(&s);
   s.getRoot()->addChild("result", s.newScriptVar(0));
 #ifdef WITH_TIME_LOGGER
   TimeLoggerCreate(Test, true, filename);
 #endif
   try {
-    s.execute(buffer);
+    s.execute(buffer, filename);
   } catch (CScriptException *e) {
     printf("%s\n", e->toString().c_str());
 	delete e;
   }
-  bool pass = (*s.getRoot()->findChild("result"))->getBool();
+  bool pass = s.getRoot()->findChild("result")->toBoolean();
 #ifdef WITH_TIME_LOGGER
   TimeLoggerLogprint(Test);
 #endif
@@ -271,15 +275,18 @@ bool run_test(const char *filename) {
   if (pass)
     printf("PASS\n");
   else {
-    char fn[64];
+	 char fn[64];
     sprintf(fn, "%s.fail.txt", filename);
+
+	 /* logging is currently deactivated because stack-overflow by recursive vars
     FILE *f = fopen(fn, "wt");
     if (f) {
+		 
       std::string symbols = s.getRoot()->getParsableString("", "   ");
       fprintf(f, "%s", symbols.c_str());
       fclose(f);
     }
-
+	 */
     printf("FAIL - symbols written to %s\n", fn);
   }
 
@@ -294,8 +301,9 @@ int main(int argc, char **argv)
 #endif
   printf("TinyJS test runner\n");
   printf("USAGE:\n");
-  printf("   ./run_tests [-k] test.js [test2.js]   : run tests\n");
+  printf("   ./run_tests [-k] tests/test001.js [tests/42tests/test002.js]   : run tests\n");
   printf("   ./run_tests [-k]                      : run all tests\n");
+  printf("   -k needs press enter at the end of runs\n");
   int arg_num = 1;
   bool runs = false;
   for(; arg_num<argc; arg_num++) {

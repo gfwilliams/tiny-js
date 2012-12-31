@@ -30,6 +30,9 @@
     <ClCompile Include="TinyJS_StringFunctions.cpp">
       <Filter>Quelldateien</Filter>
     </ClCompile>
+    <ClCompile Include="TinyJS_Threading.cpp">
+      <Filter>Quelldateien</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="TinyJS.h">
@@ -41,9 +44,6 @@
     <ClInclude Include="TinyJS_MathFunctions.h">
       <Filter>Headerdateien</Filter>
     </ClInclude>
-    <ClInclude Include="smart_pointer.h">
-      <Filter>Headerdateien</Filter>
-    </ClInclude>
     <ClInclude Include="pool_allocator.h">
       <Filter>Headerdateien</Filter>
     </ClInclude>
@@ -51,6 +51,12 @@
       <Filter>Headerdateien</Filter>
     </ClInclude>
     <ClInclude Include="TinyJS_StringFunctions.h">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+    <ClInclude Include="config.h">
+      <Filter>Headerdateien</Filter>
+    </ClInclude>
+    <ClInclude Include="TinyJS_Threading.h">
       <Filter>Headerdateien</Filter>
     </ClInclude>
   </ItemGroup>

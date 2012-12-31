@@ -5,7 +5,7 @@
  *
  * Authored By Armin Diedering <armin@diedering.de>
  *
- * Copyright (C) 2010 ardisoft
+ * Copyright (C) 2010-2012 ardisoft
  *
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -34,7 +34,8 @@
 #include <typeinfo>
 #include <stdint.h>
 #include <string>
-
+#include "config.h"
+#include "TinyJS_Threading.h"
 
 /************************************************************************
  * TinyJS must many many times allocates and frees objects
@@ -44,44 +45,9 @@
  * from the heap.
  ************************************************************************/ 
 
-//#define LOG_POOL_ALLOCATOR_MEMORY_USAGE
-
-#if defined(_DEBUG) || defined(LOG_POOL_ALLOCATOR_MEMORY_USAGE)
+#if !defined(DEBUG_POOL_ALLOCATOR) && (defined(_DEBUG) || defined(LOG_POOL_ALLOCATOR_MEMORY_USAGE))
 #	define DEBUG_POOL_ALLOCATOR
 #endif
-/************************************************************************/
-/*                  M U L T I - T H R E A D I N G                       */
-/* The fixed_size_allocator is alone not thread-save.                   */
-/* For multi-threading you must make it explicit thread-save.           */
-/* To do this, you must declare a class derived from "class             */
-/* fixed_size_allocator_lock" and overload the member-methods           */
-/* "lock" and "unlock" and assign a pointer of a instance of this class */
-/* to "fixed_size_allocator::locker"                                    */
-/*                                                                      */
-/* Example:                                                             */
-/* class my_fixed_size_lock : public fixed_size_allocator_lock {        */
-/* public:                                                              */
-/*    my_fixed_size_lock() { create_mutex(&mutex); }                    */
-/*    ~my_fixed_size_lock() { delete_mutex(&mutex); }                   */
-/*    virtual void lock() { lock_mutex(&mutex); }                       */
-/*    virtual void unlock() { unlock_mutex(&mutex); }                   */
-/* private:                                                             */
-/*    mutex_t mutex;                                                    */
-/* };                                                                   */
-/*                                                                      */
-/* int main() {                                                         */
-/*    my_fixed_size_lock lock;                                          */
-/*    fixed_size_allocator::locker = &lock;                             */
-/*    ....                                                              */
-/* }                                                                    */
-/*                                                                      */
-/************************************************************************/
-class fixed_size_allocator_lock {
-public:
-	virtual void lock()=0;
-	virtual void unlock()=0;
-}; 
-
 
 struct block_head;
 class fixed_size_allocator {
@@ -90,7 +56,9 @@ public:
 	static void *alloc(size_t,const char* for_class=0);
 	static void free(void *, size_t);
 	size_t objectSize() { return object_size; }
-	static fixed_size_allocator_lock *locker;
+#ifndef NO_THREADING
+	static CScriptMutex locker;
+#endif
 private:
 	fixed_size_allocator(size_t num_objects, size_t object_size, const char* for_class); 
 	fixed_size_allocator(const fixed_size_allocator&);

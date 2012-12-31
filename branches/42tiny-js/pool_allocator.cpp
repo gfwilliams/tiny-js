@@ -5,7 +5,7 @@
  *
  * Authored By Armin Diedering <armin@diedering.de>
  *
- * Copyright (C) 2010 ardisoft
+ * Copyright (C) 2010-2012 ardisoft
  *
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -206,15 +206,20 @@ public:
 
 TimeLoggerCreate(alloc, false);
 TimeLoggerCreate(free, false);
-fixed_size_allocator_lock *fixed_size_allocator::locker = 0;
+#ifdef NO_THREADING
+#	define LOCK do{}while(0)
+#else
+CScriptMutex fixed_size_allocator::locker;
 class lock_help {
 public:
-	lock_help() { if(fixed_size_allocator::locker) fixed_size_allocator::locker->lock(); }
-	~lock_help() { if(fixed_size_allocator::locker) fixed_size_allocator::locker->unlock(); }
+	lock_help() { fixed_size_allocator::locker.lock(); }
+	~lock_help() { fixed_size_allocator::locker.unlock(); }
 };
+#define LOCK lock_help lock
+#endif
 void* fixed_size_allocator::alloc(size_t size, const char *for_class) {
 	TimeLoggerHelper(alloc);
-	lock_help lock;
+	LOCK;
 	if(!allocator_pool.allocator_pool) {
 		allocator_pool.allocator_pool = new allocator_pool_t();
 		allocator_pool.last_allocate_allocator = allocator_pool.last_free_allocator = 0;
@@ -232,7 +237,7 @@ void* fixed_size_allocator::alloc(size_t size, const char *for_class) {
 }
 void fixed_size_allocator::free(void *p, size_t size) {
 	TimeLoggerHelper(free);
-	lock_help lock;
+	LOCK;
 	if(!allocator_pool.allocator_pool) {
 		ASSERT(0/* free called but not allocator defined*/);
 		return;

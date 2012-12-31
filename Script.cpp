@@ -14,7 +14,7 @@
  *
  * Authored / Changed By Armin Diedering <armin@diedering.de>
  *
- * Copyright (C) 2010 ardisoft
+ * Copyright (C) 2010-2012 ardisoft
  *
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -42,12 +42,12 @@
  */
 
 #include "TinyJS.h"
-#include "TinyJS_Functions.h"
-#include "TinyJS_StringFunctions.h"
-#include "TinyJS_MathFunctions.h"
+//#include "TinyJS_Functions.h"
+//#include "TinyJS_StringFunctions.h"
+//#include "TinyJS_MathFunctions.h"
 #include <assert.h>
 #include <stdio.h>
-	
+
 #ifdef _DEBUG
 #	ifndef _MSC_VER
 #		define DEBUG_MEMORY 1
@@ -60,7 +60,7 @@
 const char *code = "function myfunc(x, y) { return x + y; } var a = myfunc(1,2); print(a);";
 
 void js_print(const CFunctionsScopePtr &v, void *) {
-	printf("> %s\n", v->getArgument("text")->getString().c_str());
+	printf("> %s\n", v->getArgument("text")->toString().c_str());
 }
 
 void js_dump(const CFunctionsScopePtr &v, void *) {
@@ -72,9 +72,9 @@ int main(int , char **)
 {
 	CTinyJS *js = new CTinyJS();
 	/* add the functions from TinyJS_Functions.cpp */
-	registerFunctions(js);
-	registerStringFunctions(js);
-	registerMathFunctions(js);
+//	registerFunctions(js);
+//	registerStringFunctions(js);
+//	registerMathFunctions(js);
 	/* Add a native function */
 	js->addNative("function print(text)", &js_print, 0);
 //  js->addNative("function dump()", &js_dump, js);

@@ -14,7 +14,7 @@
  *
  * Authored / Changed By Armin Diedering <armin@diedering.de>
  *
- * Copyright (C) 2010 ardisoft
+ * Copyright (C) 2010-2012 ardisoft
  *
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -41,7 +41,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <time.h>
-#include "TinyJS_Functions.h"
+#include "TinyJS.h"
 
 using namespace std;
 // ----------------------------------------------- Actual Functions
@@ -64,7 +64,7 @@ static void scObjectClone(const CFunctionsScopePtr &c, void *) {
 }
 
 static void scIntegerValueOf(const CFunctionsScopePtr &c, void *) {
-	string str = c->getArgument("str")->getString();
+	string str = c->getArgument("str")->toString();
 
 	int val = 0;
 	if (str.length()==1)
@@ -73,8 +73,10 @@ static void scIntegerValueOf(const CFunctionsScopePtr &c, void *) {
 }
 
 static void scJSONStringify(const CFunctionsScopePtr &c, void *) {
-	string indent = "   ", indentString;
-	c->setReturnVar(c->newScriptVar(c->getArgument("obj")->getParsableString(indentString, indent)));
+	uint32_t UniqueID = c->getContext()->getUniqueID();
+	bool hasRecursion=false;
+	c->setReturnVar(c->newScriptVar(c->getArgument("obj")->getParsableString("", "   ", UniqueID, hasRecursion)));
+	if(hasRecursion) c->throwError(TypeError, "cyclic object value");
 }
 
 static void scArrayContains(const CFunctionsScopePtr &c, void *data) {
@@ -85,7 +87,7 @@ static void scArrayContains(const CFunctionsScopePtr &c, void *data) {
 	CScriptVarPtr equal = c->constScriptVar(Undefined);
 	for (int i=0;i<l;i++) {
 		equal = obj->mathsOp(arr->getArrayIndex(i), LEX_EQUAL);
-		if(equal->getBool()) {
+		if(equal->toBoolean()) {
 			c->setReturnVar(c->constScriptVar(true));
 			return;
 		}
@@ -103,7 +105,7 @@ static void scArrayRemove(const CFunctionsScopePtr &c, void *data) {
 	CScriptVarPtr equal = c->constScriptVar(Undefined);
 	for (i=0;i<l;i++) {
 		equal = obj->mathsOp(arr->getArrayIndex(i), LEX_EQUAL);
-		if(equal->getBool()) {
+		if(equal->toBoolean()) {
 			removedIndices.push_back(i);
 		}
 	}
@@ -113,7 +115,7 @@ static void scArrayRemove(const CFunctionsScopePtr &c, void *data) {
 		int next_insert = *remove_it++;
 		for (i=next_remove;i<l;i++) {
 
-			CScriptVarLink *link = arr->findChild(int2string(i));
+			CScriptVarLinkPtr link = arr->findChild(int2string(i));
 			if(i == next_remove) {
 				if(link) arr->removeLink(link);
 				if(remove_it != removedIndices.end())
@@ -129,14 +131,14 @@ static void scArrayRemove(const CFunctionsScopePtr &c, void *data) {
 }
 
 static void scArrayJoin(const CFunctionsScopePtr &c, void *data) {
-	string sep = c->getArgument("separator")->getString();
+	string sep = c->getArgument("separator")->toString();
 	CScriptVarPtr arr = c->getArgument("this");
 
 	ostringstream sstr;
 	int l = arr->getArrayLength();
 	for (int i=0;i<l;i++) {
 		if (i>0) sstr << sep;
-		sstr << arr->getArrayIndex(i)->getString();
+		sstr << arr->getArrayIndex(i)->toString();
 	}
 
 	c->setReturnVar(c->newScriptVar(sstr.str()));
@@ -144,14 +146,16 @@ static void scArrayJoin(const CFunctionsScopePtr &c, void *data) {
 
 // ----------------------------------------------- Register Functions
 void registerFunctions(CTinyJS *tinyJS) {
-	tinyJS->addNative("function trace()", scTrace, tinyJS);
-	tinyJS->addNative("function Object.prototype.dump()", scObjectDump, 0);
-	tinyJS->addNative("function Object.prototype.clone()", scObjectClone, 0);
+}
+extern "C" void _registerFunctions(CTinyJS *tinyJS) {
+	tinyJS->addNative("function trace()", scTrace, tinyJS, SCRIPTVARLINK_BUILDINDEFAULT);
+	tinyJS->addNative("function Object.prototype.dump()", scObjectDump, 0, SCRIPTVARLINK_BUILDINDEFAULT);
+	tinyJS->addNative("function Object.prototype.clone()", scObjectClone, 0, SCRIPTVARLINK_BUILDINDEFAULT);
 
-	tinyJS->addNative("function Integer.valueOf(str)", scIntegerValueOf, 0); // value of a single character
-	tinyJS->addNative("function JSON.stringify(obj, replacer)", scJSONStringify, 0); // convert to JSON. replacer is ignored at the moment
-	tinyJS->addNative("function Array.prototype.contains(obj)", scArrayContains, 0);
-	tinyJS->addNative("function Array.prototype.remove(obj)", scArrayRemove, 0);
-	tinyJS->addNative("function Array.prototype.join(separator)", scArrayJoin, 0);
+	tinyJS->addNative("function Integer.valueOf(str)", scIntegerValueOf, 0, SCRIPTVARLINK_BUILDINDEFAULT); // value of a single character
+	tinyJS->addNative("function JSON.stringify(obj, replacer)", scJSONStringify, 0, SCRIPTVARLINK_BUILDINDEFAULT); // convert to JSON. replacer is ignored at the moment
+	tinyJS->addNative("function Array.prototype.contains(obj)", scArrayContains, 0, SCRIPTVARLINK_BUILDINDEFAULT);
+	tinyJS->addNative("function Array.prototype.remove(obj)", scArrayRemove, 0, SCRIPTVARLINK_BUILDINDEFAULT);
+	tinyJS->addNative("function Array.prototype.join(separator)", scArrayJoin, 0, SCRIPTVARLINK_BUILDINDEFAULT);
 }
 

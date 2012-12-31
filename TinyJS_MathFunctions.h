@@ -16,7 +16,7 @@
  *
  * Authored / Changed By Armin Diedering <armin@diedering.de>
  *
- * Copyright (C) 2010 ardisoft
+ * Copyright (C) 2010-2012 ardisoft
  *
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -38,12 +38,14 @@
  * SOFTWARE.
  */
 
+#pragma message("The include "__FILE__" is deprecated - MathFunctions now registered by default")
+
 #ifndef TINYJS_MATHFUNCTIONS_H
 #define TINYJS_MATHFUNCTIONS_H
 
 #include "TinyJS.h"
 
 /// Register useful math. functions with the TinyJS interpreter
-extern void registerMathFunctions(CTinyJS *tinyJS);
+extern void DEPRECATED("is deprecated - MathFunctions now registered by default") registerMathFunctions(CTinyJS *tinyJS);
 
 #endif

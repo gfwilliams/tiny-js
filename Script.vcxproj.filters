@@ -19,12 +19,4 @@
       <Filter>Quelldateien</Filter>
     </ClCompile>
   </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="Script.h">
-      <Filter>Headerdateien</Filter>
-    </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="ReadMe.txt" />
-  </ItemGroup>
 </Project>

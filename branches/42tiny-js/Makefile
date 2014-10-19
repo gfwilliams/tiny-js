@@ -4,7 +4,11 @@ LDFLAGS=-g -rdynamic
 
 SOURCES=  \
 TinyJS.cpp \
-TinyJS_Functions.cpp
+pool_allocator.cpp \
+TinyJS_Functions.cpp \
+TinyJS_MathFunctions.cpp \
+TinyJS_StringFunctions.cpp \
+TinyJS_Threading.cpp
 
 OBJECTS=$(SOURCES:.cpp=.o)
 

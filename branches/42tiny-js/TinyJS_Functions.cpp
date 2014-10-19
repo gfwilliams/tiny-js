@@ -14,7 +14,7 @@
  *
  * Authored / Changed By Armin Diedering <armin@diedering.de>
  *
- * Copyright (C) 2010-2012 ardisoft
+ * Copyright (C) 2010-2014 ardisoft
  *
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -62,7 +62,7 @@ static void scObjectClone(const CFunctionsScopePtr &c, void *) {
 	CScriptVarPtr obj = c->getArgument("this");
 	c->setReturnVar(obj->clone());
 }
-
+/*
 static void scIntegerValueOf(const CFunctionsScopePtr &c, void *) {
 	string str = c->getArgument("str")->toString();
 
@@ -71,11 +71,12 @@ static void scIntegerValueOf(const CFunctionsScopePtr &c, void *) {
 		val = str.operator[](0);
 	c->setReturnVar(c->newScriptVar(val));
 }
-
+*/
 static void scJSONStringify(const CFunctionsScopePtr &c, void *) {
-	uint32_t UniqueID = c->getContext()->getUniqueID();
+	uint32_t UniqueID = c->getContext()->allocUniqueID();
 	bool hasRecursion=false;
 	c->setReturnVar(c->newScriptVar(c->getArgument("obj")->getParsableString("", "   ", UniqueID, hasRecursion)));
+	c->getContext()->freeUniqueID();
 	if(hasRecursion) c->throwError(TypeError, "cyclic object value");
 }
 
@@ -152,7 +153,7 @@ extern "C" void _registerFunctions(CTinyJS *tinyJS) {
 	tinyJS->addNative("function Object.prototype.dump()", scObjectDump, 0, SCRIPTVARLINK_BUILDINDEFAULT);
 	tinyJS->addNative("function Object.prototype.clone()", scObjectClone, 0, SCRIPTVARLINK_BUILDINDEFAULT);
 
-	tinyJS->addNative("function Integer.valueOf(str)", scIntegerValueOf, 0, SCRIPTVARLINK_BUILDINDEFAULT); // value of a single character
+//	tinyJS->addNative("function Integer.valueOf(str)", scIntegerValueOf, 0, SCRIPTVARLINK_BUILDINDEFAULT); // value of a single character
 	tinyJS->addNative("function JSON.stringify(obj, replacer)", scJSONStringify, 0, SCRIPTVARLINK_BUILDINDEFAULT); // convert to JSON. replacer is ignored at the moment
 	tinyJS->addNative("function Array.prototype.contains(obj)", scArrayContains, 0, SCRIPTVARLINK_BUILDINDEFAULT);
 	tinyJS->addNative("function Array.prototype.remove(obj)", scArrayRemove, 0, SCRIPTVARLINK_BUILDINDEFAULT);

@@ -14,7 +14,7 @@
  *
  * Authored / Changed By Armin Diedering <armin@diedering.de>
  *
- * Copyright (C) 2010-2012 ardisoft
+ * Copyright (C) 2010-2014 ardisoft
  *
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -53,6 +53,10 @@
 #	endif
 #endif
 #define _CRT_SECURE_NO_WARNINGS
+
+#ifdef WIN32
+#include <process.h>
+#endif
 
 #include "TinyJS.h"
 //#include "TinyJS_Functions.h"
@@ -222,8 +226,12 @@ public:
  	~end()
 	{
 		if(active) {
+#ifdef WIN32
+			system("pause");
+#else
 			printf("press Enter (end)");
 			getchar();
+#endif
 		}
 	}
 	bool active;
@@ -278,16 +286,16 @@ bool run_test(const char *filename) {
 	 char fn[64];
     sprintf(fn, "%s.fail.txt", filename);
 
-	 /* logging is currently deactivated because stack-overflow by recursive vars
+//	 logging is currently deactivated because stack-overflow by recursive vars
     FILE *f = fopen(fn, "wt");
     if (f) {
 		 
-      std::string symbols = s.getRoot()->getParsableString("", "   ");
+      std::string symbols = s.getRoot()->CScriptVar::getParsableString();
       fprintf(f, "%s", symbols.c_str());
       fclose(f);
     }
-	 */
-    printf("FAIL - symbols written to %s\n", fn);
+
+	 printf("FAIL - symbols written to %s\n", fn);
   }
 
   delete[] buffer;

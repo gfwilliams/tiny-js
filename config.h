@@ -8,7 +8,7 @@
  *
  * Authored By Armin Diedering <armin@diedering.de>
  *
- * Copyright (C) 2010-2012 ardisoft
+ * Copyright (C) 2010-2014 ardisoft
  *
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -83,6 +83,16 @@
  */
 //#define PREVENT_REDECLARATION_IN_FUNCTION_SCOPES
 
+//////////////////////////////////////////////////////////////////////////
+
+/* GENERATOR's
+ * ===========
+ * functions with "yield" in it is detected as Generator.
+ * Generator-support needs threading-stuff
+ * To disable Generators define NO_GENERATORS
+ */
+//#define NO_GENERATORS
+
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -90,14 +100,20 @@
  * ===============
  * 42TinyJS is basically thread-save.
  * You can run different or the same JS-code simultaneously in different instances of class TinyJS. 
- * The threading-stuff is currently only needed by the pool-allocator
+ * >>> NOTE: You can NOT run more threads on the SAME instance of class TinyJS <<<
+ * The threading-stuff is needed by the pool-allocator (locking) and the generator-/yield-stuff
  * to deactivate threading define NO_THREADING
  * NOTE: if NO_POOL_ALLOCATOR not defined you can not run JS-code simultaneously
- *       NO_POOL_ALLOCATOR implies NO_THREADING
  */
 //#define NO_THREADING
 
-/* on Windows the windows-threading-API is used by default.
+/* with C++2011 (or MS VisualC++ 2012 and above) the C++ 2011 STL-Threading-API is used. 
+ * You can define NO_CXX_THREADS to use alternate API's
+ */
+//#define NO_CXX_THREADS 
+
+/* if C++ 2011 STL-Threading-API not available
+ * on Windows the windows-threading-API is used by default.
  * on non-Windows (WIN32 is not defined) it is tried to use the POSIX pthread-API
  * to force the pthread-API define HAVE_PTHREAD (windows needs in this case 
  *   a pthread-lib e.g http://http://sourceware.org/pthreads-win32/)
@@ -113,7 +129,15 @@
 // DO NOT MAKE CHANGES OF THE FOLLOWING STUFF //
 ////////////////////////////////////////////////
 
-#if defined(NO_POOL_ALLOCATOR) && !defined(NO_THREADING)
+#if defined(NO_THREADING) && !defined(NO_GENERATORS)
+#	define NO_GENERATORS
+#pragma message("\n***********************************************************************\n\
+* You have defined NO_THREADING and not defined NO_GENERATORS\n\
+* NOTE: GENERATORS needs THREADING. Generators/Yield are deactivated\n\
+***********************************************************************\n")
+#endif
+
+#if defined(NO_POOL_ALLOCATOR) && defined(NO_GENERATORS) && !defined(NO_THREADING)
 #	define NO_THREADING
 #endif
 
@@ -124,5 +148,30 @@
 ***********************************************************************\n")
 #endif
 
+#if defined(__GXX_EXPERIMENTAL_CXX0X__) || __cplusplus >= 201103L
+
+#	define HAVE_CXX11_RVALUE_REFERENCE 1
+#	define MEMBER_DELETE =delete
+
+#	if !defined(NO_CXX_THREADS) && !defined(NO_THREADING)
+#		define HAVE_CXX_THREADS 1
+#	endif
+#else
+#	if _MSC_VER >= 1600
+#		define HAVE_CXX11_RVALUE_REFERENCE 1
+#	endif
+#	if _MSC_VER >= 1700
+#		if !defined(NO_CXX_THREADS) && !defined(NO_THREADING)
+#			define HAVE_CXX_THREADS 1
+#		endif
+#	endif
+#	if _MSC_VER >= 1800
+#		define define MEMBER_DELETE =delete
+#	endif
+#endif
+
+#ifndef MEMBER_DELETE
+#	define MEMBER_DELETE
+#endif
 
 #endif // _42TinyJS_config_h__

@@ -5,7 +5,7 @@
  *
  * Authored By Armin Diedering <armin@diedering.de>
  *
- * Copyright (C) 2010-2012 ardisoft
+ * Copyright (C) 2010-2014 ardisoft
  *
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -90,7 +90,7 @@ static void scStringIndexOf(const CFunctionsScopePtr &c, void *userdata) {
 	if(pos_n.sign()<0) pos = 0;
 	else if(pos_n.isInfinity()) pos = string::npos;
 	else if(pos_n.isFinite()) pos = pos_n.toInt32();
-	string::size_type p = (userdata==0) ? str.find(search) : str.rfind(search);
+	string::size_type p = (userdata==0) ? str.find(search, pos) : str.rfind(search, pos);
 	int val = (p==string::npos) ? -1 : p;
 	c->setReturnVar(c->newScriptVar(val));
 }
@@ -229,7 +229,18 @@ static void scStringReplace(const CFunctionsScopePtr &c, void *) {
 					arguments.pop_back();
 				}
 				ret_str.append(newsubstr);
+#if 1 /* Fix from "vcmpeq" (see Issue 14) currently untested */
+				if (match_begin == match_end) {
+					if (search_begin != str.end())
+						++search_begin;
+					else
+						break;
+				} else {
+					search_begin = match_end;
+				}
+#else
 				search_begin = match_end;
+#endif
 			} while(global && search(str, search_begin, substr, ignoreCase, sticky, match_begin, match_end));
 		}
 		ret_str.append(search_begin, str.end());
@@ -264,7 +275,18 @@ static void scStringMatch(const CFunctionsScopePtr &c, void *) {
 				do {
 					offset = match_begin-str.begin();
 					retVar->addChild(int2string(idx++), c->newScriptVar(string(match_begin, match_end)));
+#if 1 /* Fix from "vcmpeq" (see Issue 14) currently untested */
+					if (match_begin == match_end) {
+						if (search_begin != str.end())
+							++search_begin;
+						else
+							break;
+					} else {
+						search_begin = match_end;
+					}
+#else
 					search_begin = match_end;
+#endif
 				} while(global && regex_search(str, search_begin, substr, ignoreCase, sticky, match_begin, match_end));
 			}
 			if(idx) {
@@ -324,30 +346,37 @@ static void scStringSplit(const CFunctionsScopePtr &c, void *) {
 
 	string seperator;
 	bool global, ignoreCase, sticky;
+#ifndef NO_REGEXP
 	CScriptVarRegExpPtr RegExp = getRegExpData(c, "separator", true, 0, seperator, global, ignoreCase, sticky);
-
+#else 
+	getRegExpData(c, "separator", true, 0, seperator, global, ignoreCase, sticky);
+#endif
+		
 	CScriptVarPtr sep_var = c->getArgument("separator");
 	CScriptVarPtr limit_var = c->getArgument("limit");
 	int limit = limit_var->isUndefined() ? 0x7fffffff : limit_var->toNumber().toInt32();
 
 	CScriptVarPtr result(newScriptVar(c->getContext(), Array));
 	c->setReturnVar(result);
-	if(limit == 0 || !str.size())
+	if(limit == 0)
 		return;
-	else if(sep_var->isUndefined()) {
+	else if(!str.size() || sep_var->isUndefined()) {
 		result->setArrayIndex(0, c->newScriptVar(str));
 		return;
 	}
 	if(seperator.size() == 0) {
-		for(int i=0; i<min((int)seperator.size(), limit); ++i)
+		for(int i=0; i<min((int)str.size(), limit); ++i)
 			result->setArrayIndex(i, c->newScriptVar(str.substr(i,1)));
 		return;
 	}
 	int length = 0;
 	string::const_iterator search_begin=str.begin(), match_begin, match_end;
+#ifndef NO_REGEXP
 	smatch match;
+#endif
 	bool found=true;
 	while(found) {
+#ifndef NO_REGEXP
 		if(RegExp) {
 			try { 
 				found = regex_search(str, search_begin, seperator, ignoreCase, sticky, match_begin, match_end, match);
@@ -355,11 +384,13 @@ static void scStringSplit(const CFunctionsScopePtr &c, void *) {
 				c->throwError(SyntaxError, string(e.what())+" - "+CScriptVarRegExp::ErrorStr(e.code()));
 			}
 		} else /* NO_REGEXP */
+#endif
 			found = string_search(str, search_begin, seperator, ignoreCase, sticky, match_begin, match_end);
 		string f;
 		if(found) {
 			result->setArrayIndex(length++, c->newScriptVar(string(search_begin, match_begin)));
 			if(length>=limit) break;
+#ifndef NO_REGEXP
 			for(uint32_t i=1; i<match.size(); i++) {
 				if(match[i].matched) 
 					result->setArrayIndex(length++, c->newScriptVar(string(match[i].first, match[i].second)));
@@ -368,6 +399,7 @@ static void scStringSplit(const CFunctionsScopePtr &c, void *) {
 				if(length>=limit) break;
 			}
 			if(length>=limit) break;
+#endif
 			search_begin = match_end;
 		} else {
 			result->setArrayIndex(length++, c->newScriptVar(string(search_begin,str.end())));

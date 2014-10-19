@@ -14,7 +14,7 @@
  *
  * Authored / Changed By Armin Diedering <armin@diedering.de>
  *
- * Copyright (C) 2010-2012 ardisoft
+ * Copyright (C) 2010-2014 ardisoft
  *
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -47,6 +47,7 @@
 //#include "TinyJS_MathFunctions.h"
 #include <assert.h>
 #include <stdio.h>
+#include <iostream>
 
 #ifdef _DEBUG
 #	ifndef _MSC_VER
@@ -68,8 +69,19 @@ void js_dump(const CFunctionsScopePtr &v, void *) {
 }
 
 
+char *topOfStack;
+#define sizeOfStack 1*1024*1024 /* for example 1 MB depend of Compiler-Options */
+#define sizeOfSafeStack 50*1024 /* safety area */
+
 int main(int , char **)
 {
+	char dummy;
+	topOfStack = &dummy;
+//	printf("%i %i\n", __cplusplus, _MSC_VER);
+
+//	printf("Locale:%s\n",setlocale( LC_ALL, 0 ));
+//	setlocale( LC_ALL, ".858" );
+//	printf("Locale:%s\n",setlocale( LC_ALL, 0 ));
 	CTinyJS *js = new CTinyJS();
 	/* add the functions from TinyJS_Functions.cpp */
 //	registerFunctions(js);
@@ -80,17 +92,31 @@ int main(int , char **)
 //  js->addNative("function dump()", &js_dump, js);
 	/* Execute out bit of code - we could call 'evaluate' here if
 		we wanted something returned */
+	js->setStackBase(topOfStack-(sizeOfStack-sizeOfSafeStack));
 	try {
 		js->execute("var lets_quit = 0; function quit() { lets_quit = 1; }");
 		js->execute("print(\"Interactive mode... Type quit(); to exit, or print(...); to print something, or dump() to dump the symbol table!\");");
+		js->execute("print(function () {print(\"gen\");yield 5;yield 6;}().next());", "yield-test.js");
+		js->execute("for each(i in function () {print(\"gen\");yield 5;yield 6;}()) print(i);", "yield-test.js");
+		js->execute("function g(){				\n\n"
+			"	throw \"error\"\n"
+			"	try{									\n"
+			"		yield 1; yield 2				\n"
+			"	}finally{							\n"
+			"		print(\"finally\")			\n"
+			"		yield 3;							\n"
+			"		throw StopIteration			\n"
+			"	}										\n"
+			"	print(\"after finally\")		\n"
+			"}t=g()", "test");
 	} catch (CScriptException *e) {
 		printf("%s\n", e->toString().c_str());
 		delete e;
 	}
 	int lineNumber = 0;
 	while (js->evaluate("lets_quit") == "0") {
-		char buffer[2048];
-		fgets ( buffer, sizeof(buffer), stdin );
+		std::string buffer;
+		if(!std::getline(std::cin, buffer)) break;
 		try {
 			js->execute(buffer, "console.input", lineNumber++);
 		} catch (CScriptException *e) {

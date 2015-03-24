@@ -24,7 +24,7 @@ Currently TinyJS supports:
 * Calling C/C++ code from JavaScript
 * Objects with Inheritance (not fully implemented)
 
-Please see CodeExamples for examples of code that works...
+Please see [CodeExamples](https://github.com/gfwilliams/tiny-js/blob/wiki/CodeExamples.md) for examples of code that works...
 
 For a list of known issues, please see the comments at the top of the TinyJS.cpp file, as well as the [GitHub issues](https://github.com/gfwilliams/tiny-js/issues)
 

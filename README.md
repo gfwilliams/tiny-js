@@ -1,7 +1,7 @@
 tiny-js
 =======
 
-(originally [on Google Code](https://code.google.com/p/tiny-js/admin))
+(originally [on Google Code](https://code.google.com/p/tiny-js/))
 
 This project aims to be an extremely simple (~2000 line) JavaScript interpreter, meant for 
 inclusion in applications that require a simple, familiar script language that can be included

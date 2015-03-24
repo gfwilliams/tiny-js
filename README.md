@@ -32,7 +32,8 @@ There is also the [42tiny-js branch](https://github.com/gfwilliams/tiny-js/tree/
 
 TinyJS is released under an MIT licence.
 
-==Internal Structure==
+Internal Structure
+------------------------
 
 TinyJS uses a Recursive Descent Parser, so there is no 'Parser Generator' required. It does not
 compile to an intermediate code, and instead executes directly from source code. This makes it 
@@ -41,7 +42,8 @@ quite fast for code that is executed infrequently, and slow for loops.
 Variables, Arrays and Objects are stored in a simple linked list tree structure (42tiny-js uses a C++ Map).
 This is simple, but relatively slow for large structures or arrays.
 
-==JavaScript for Microcontrollers==
+JavaScript for Microcontrollers
+--------------------------------
 
 If you're after JavaScript for Microcontrollers, take a look at the
 [Espruino JavaScript Interpreter](http://www.espruino.com ) - it is a complete re-write of TinyJS

@@ -188,7 +188,7 @@ void scMathSinh(CScriptVar *c, void *userdata) {
 
 //Math.asinh(a) - returns trig. hyperbolic arcsine of given angle in radians
 void scMathASinh(CScriptVar *c, void *userdata) {
-    scReturnDouble( asinh( scGetDouble("a") ) );
+    scReturnDouble( asinh( (long double)scGetDouble("a") ) );
 }
 
 //Math.cosh(a) - returns trig. hyperbolic cosine of given angle in radians
@@ -198,7 +198,7 @@ void scMathCosh(CScriptVar *c, void *userdata) {
 
 //Math.acosh(a) - returns trig. hyperbolic arccosine of given angle in radians
 void scMathACosh(CScriptVar *c, void *userdata) {
-    scReturnDouble( acosh( scGetDouble("a") ) );
+    scReturnDouble( acosh( (long double)scGetDouble("a") ) );
 }
 
 //Math.tanh(a) - returns trig. hyperbolic tangent of given angle in radians

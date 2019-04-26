@@ -37,3 +37,9 @@ add_library(tiny-js STATIC ${TINY_JS_HEADER_FILES} ${TINY_JS_SOURCE_FILES})
 ADD_EXECUTABLE(tiny-js-cli Script.cpp ${TINY_JS_SOURCE_FILES})
 
 ADD_EXECUTABLE(tiny-js-tests run_tests.cpp ${TINY_JS_SOURCE_FILES})
+
+add_custom_command(
+	TARGET tiny-js-tests POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E copy_directory
+			${CMAKE_SOURCE_DIR}/tests
+			${CMAKE_CURRENT_BINARY_DIR}/tests)

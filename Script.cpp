@@ -32,6 +32,9 @@
 
 #include "TinyJS.h"
 #include "TinyJS_Functions.h"
+#include "TinyJS_MathFunctions.h"
+#include "TinyJS_Additional.h"
+#include "Fusion_Functions.h"
 #include <assert.h>
 #include <stdio.h>
 
@@ -56,9 +59,24 @@ int main(int argc, char **argv)
   CTinyJS *js = new CTinyJS();
   /* add the functions from TinyJS_Functions.cpp */
   registerFunctions(js);
+  /* add the math functions from TinyJS_MathFunctions.cpp */
+  registerMathFunctions(js);
+  /* add the functions from TinyJS_Additional.cpp */
+  registerAdditionalFunctions(js);
+  /* add the functions from Fusion_Functions.cpp */
+  registerFusionFunctions(js);
+  
   /* Add a native function */
   js->addNative("function print(text)", &js_print, 0);
   js->addNative("function dump()", &js_dump, js);
+
+  /* Open our output file */
+  try {
+    fileOpen("out.nc");
+  } catch (CScriptException *e) {
+    printf("ERROR: %s\n", e->text.c_str());
+  }
+
   /* Execute out bit of code - we could call 'evaluate' here if
      we wanted something returned */
   try {
@@ -78,6 +96,7 @@ int main(int argc, char **argv)
     }
   }
   delete js;
+  fileClose();
 #ifdef _WIN32
 #ifdef _DEBUG
   _CrtDumpMemoryLeaks();

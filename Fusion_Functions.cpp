@@ -13,16 +13,12 @@
 
 void fs_setCodePage(CScriptVar *c, void* userdata) {
     // do nothing for now
-	IGNORE_PARAMETER(c);
-	IGNORE_PARAMETER(userdata);
     printf("Set Code Page to %s\n", c->getParameter("text")->getString().c_str());
 }
 
 void fs_spatial(CScriptVar* c, void* userdata) {
-	IGNORE_PARAMETER(c);
-	IGNORE_PARAMETER(userdata);
-    wString unit{scGetString("b")}; 
-    wString IN{"IN"};
+    std::string unit{scGetString("b")}; 
+    std::string IN{"IN"};
 
     if(unit==IN) {
       scReturnDouble(scGetDouble("a")*25.00);
@@ -33,8 +29,6 @@ void fs_spatial(CScriptVar* c, void* userdata) {
 
 void fs_createFormat(CScriptVar* c, void* userdata) {
     // mockup
-	IGNORE_PARAMETER(c);
-	IGNORE_PARAMETER(userdata);
     if(scIsObject("a")){
          printf("CREATE FORMAT: ");
          printf("%s\n",c->getParameter("a")->getParameter("prefix")->getString().c_str());            
@@ -44,24 +38,18 @@ void fs_createFormat(CScriptVar* c, void* userdata) {
 
 void fs_createVariable(CScriptVar* c, void* userdata) {
     // mockup
-	IGNORE_PARAMETER(c);
-	IGNORE_PARAMETER(userdata);
     //scGetString("b");
     scReturnString(scGetString("a"));
 }
 
 void fs_createReferenceVariable(CScriptVar* c, void* userdata) {
     // mockup
-	IGNORE_PARAMETER(c);
-	IGNORE_PARAMETER(userdata);
     //scGetString("b");
     scReturnString(scGetString("a"));
 }
 
 void fs_createModal(CScriptVar* c, void* userdata) {
     // mockup
-	IGNORE_PARAMETER(c);
-	IGNORE_PARAMETER(userdata);
     //scGetString("b");
     scReturnString(scGetString("a"));
 }

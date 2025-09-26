@@ -772,6 +772,7 @@ void CScriptVar::init() {
     data = TINYJS_BLANK_DATA;
     intData = 0;
     doubleData = 0;
+    userCustomData = nullptr;
 }
 
 CScriptVar *CScriptVar::getReturnVar() {
@@ -1121,6 +1122,7 @@ void CScriptVar::copySimpleData(CScriptVar *val) {
     data = val->data;
     intData = val->intData;
     doubleData = val->doubleData;
+    userCustomData = val->userCustomData;
     flags = (flags & ~SCRIPTVAR_VARTYPEMASK) | (val->flags & SCRIPTVAR_VARTYPEMASK);
 }
 
@@ -1274,6 +1276,14 @@ void CScriptVar::unref() {
 
 int CScriptVar::getRefs() {
     return refs;
+}
+
+void CScriptVar::setUserCustomData(void *p) {
+  userCustomData = p;
+}
+
+void *CScriptVar::getUserCustomData() {
+  return userCustomData;
 }
 
 

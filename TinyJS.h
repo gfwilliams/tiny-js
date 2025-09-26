@@ -262,10 +262,14 @@ public:
     CScriptVar *ref(); ///< Add reference to this variable
     void unref(); ///< Remove a reference, and delete this variable if required
     int getRefs(); ///< Get the number of references to this script variable
+    void setUserCustomData(void *);
+    void *getUserCustomData();
+
 protected:
     int refs; ///< The number of references held to this - used for garbage collection
 
     std::string data; ///< The contents of this variable if it is a string
+    void *userCustomData;
     long intData; ///< The contents of this variable if it is an int
     double doubleData; ///< The contents of this variable if it is a double
     int flags; ///< the flags determine the type of the variable - int/double/string/etc

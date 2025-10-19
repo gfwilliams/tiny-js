@@ -100,6 +100,15 @@ void scMathRound(CScriptVar *c, void *userdata) {
     }
 }
 
+//Math.floor(a) - returns nearest floor of given value
+void scMathFloor(CScriptVar *c, void *userdata) {
+    if ( scIsInt("a") ) {
+      scReturnInt( floor( scGetInt("a") ) );
+    } else if ( scIsDouble("a") ) {
+      scReturnInt( floor( scGetDouble("a") ) );
+    }
+}
+
 //Math.min(a,b) - returns minimum of two given values 
 void scMathMin(CScriptVar *c, void *userdata) {
     if ( (scIsInt("a")) && (scIsInt("b")) ) {
@@ -252,6 +261,7 @@ void registerMathFunctions(CTinyJS *tinyJS) {
     // --- Math and Trigonometry functions ---
     tinyJS->addNative("function Math.abs(a)", scMathAbs, 0);
     tinyJS->addNative("function Math.round(a)", scMathRound, 0);
+    tinyJS->addNative("function Math.floor(a)", scMathFloor, 0);
     tinyJS->addNative("function Math.min(a,b)", scMathMin, 0);
     tinyJS->addNative("function Math.max(a,b)", scMathMax, 0);
     tinyJS->addNative("function Math.range(x,a,b)", scMathRange, 0);

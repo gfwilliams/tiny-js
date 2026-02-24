@@ -34,6 +34,7 @@
 #include "TinyJS_Functions.h"
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 
 //const char *code = "var a = 5; if (a==5) a=4; else a=3;";
@@ -50,6 +51,25 @@ void js_dump(CScriptVar *v, void *userdata) {
     js->root->trace(">  ");
 }
 
+// Read whole script file into memory and execute
+void execute_script(CTinyJS *js, const char *path) {
+  FILE *fp = fopen(path, "r");
+  if (!fp)
+    throw new CScriptException("cannot open file: " + std::string(path));
+  size_t size = 0, cap = 1024, num;
+  char *buf = (char *)malloc(cap);
+  while ((num = fread(buf + size, 1, cap - 1 - size, fp)) > 0) {
+    size += num;
+    if (size >= cap - 1) {
+      cap *= 2;
+      buf = (char *)realloc(buf, cap);
+    }
+  }
+  fclose(fp);
+  buf[size] = 0;
+  js->execute(buf);
+  free(buf);
+}
 
 int main(int argc, char **argv)
 {
@@ -57,20 +77,27 @@ int main(int argc, char **argv)
   /* add the functions from TinyJS_Functions.cpp */
   registerFunctions(js);
   /* Add a native function */
+  js->addNative("function console.log(text)", &js_print, 0);
   js->addNative("function print(text)", &js_print, 0);
   js->addNative("function dump()", &js_dump, js);
   /* Execute out bit of code - we could call 'evaluate' here if
      we wanted something returned */
   try {
+    if (argc >= 2) {
+      for (int i = 1; i < argc; i++) execute_script(js, argv[i]);
+      delete js;
+      return 0;
+    }
     js->execute("var lets_quit = 0; function quit() { lets_quit = 1; }");
     js->execute("print(\"Interactive mode... Type quit(); to exit, or print(...); to print something, or dump() to dump the symbol table!\");");
   } catch (CScriptException *e) {
     printf("ERROR: %s\n", e->text.c_str());
+    return 1;
   }
 
   while (js->evaluate("lets_quit") == "0") {
     char buffer[2048];
-    fgets ( buffer, sizeof(buffer), stdin );
+    if (!fgets(buffer, sizeof(buffer), stdin)) break;
     try {
       js->execute(buffer);
     } catch (CScriptException *e) {
